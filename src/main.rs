@@ -29,7 +29,7 @@ fn main() {
     let _read_file = thread::spawn(move || {
         while let Ok(FileBuf::MemBuffer(mut buffer, tx1)) = rx1.recv() {
             assert!(buffer.capacity() >= chunk_size);
-            unsafe { 
+            unsafe {
                 buffer.set_len(chunk_size);
             }
             match file.read(&mut buffer) {
