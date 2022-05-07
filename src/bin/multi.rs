@@ -57,6 +57,8 @@ fn main() {
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
                 match file.read(&mut buffer) {
                     Ok(0) | Err(_) => {
+                        println!("!!!!");
+                        //rd.consumers[c].send(End).unwrap();
                         rd.consumers.iter().for_each(|c| {
                             let _ = c.send(End);
                         });
@@ -71,6 +73,7 @@ fn main() {
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
                             .expect(&format!("Cannot send buffer {}", s));
+                        return;
                     }
                 }
             }
@@ -83,11 +86,18 @@ fn main() {
         tx_consumers.push(tx);
         use Message::*;
         let h = thread::spawn(move || loop {
-            if let Ok(Read(rd, buffer)) = rx.recv() {
-                consume(&buffer);
-                rd.producer_tx.send(Read(rd.clone(), buffer)).expect("Error sending");
-            } else {
-                return;
+            loop {
+                if let Ok(msg) = rx.recv() {
+                    match msg {
+                        Read(rd, buffer) => {
+                                    consume(&buffer);
+                                    rd.producer_tx.send(Read(rd.clone(), buffer)).expect("Error sending");
+                        },
+                        _ => {break;}
+                    }
+                } else {
+                    break;
+                }
             }
         });
         consumers_handles.push(h);
