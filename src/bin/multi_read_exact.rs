@@ -41,8 +41,10 @@ fn main() {
     let file = File::open(filename).expect("Cannot open file");
     let len = file.metadata().unwrap().len();
     let size = len / num_producers;
-    let num_chunks = 1;
-    let chunk_size = (size / num_chunks) as usize;
+    let chunks_per_task = 2;
+    let num_chunks = chunks_per_task * num_producers;
+    let chunk_size = len / num_chunks as u64; 
+    let last_chunk_size = chunk_size + len % chunk_size;
 
     let mut tx_producers: Senders = Senders::new();
 
@@ -63,10 +65,16 @@ fn main() {
                 if rd.cur_offset - rd.offset >= rd.size as u64 {
                     break;
                 }
-                //buffer.reserve(rd.chunk_size);
+                
+                // if file_length - offset <= 2 * chunk_length set chunk_size to
+                // length - offset
+                if len - rd.cur_offset < (2*rd.chunk_size).try_into().unwrap() {
+                    rd.chunk_size = (len - rd.cur_offset) as usize; 
+                }
+                
                 assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
-                //    buffer.set_len(rd.chunk_size);
+                    buffer.set_len(rd.chunk_size);
                 }
                 file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
@@ -74,21 +82,13 @@ fn main() {
                 match file.read_exact(&mut buffer) {
                     Err(err) => {
                         panic!("<{}", err.to_string());
-                    }
+                    },
                     Ok(s) => {
                         println!(">[{}] {:?}", i, buffer.as_ptr());
-                        //println!("Sending {} bytes to {}", s, c);
-                        //if s == 0 {
-                        //    return;
-                        //}
-                        //assert!(buffer.capacity() >= s);
-                        unsafe {
-                        //    buffer.set_len(s);
-                        }
-                        rd.cur_offset += buffer.len() as u64;//   s as u64;
+                        rd.cur_offset += buffer.len() as u64;
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
-                            .expect(&format!("Cannot send buffer"));// {}", s));
+                            .expect(&format!("Cannot send buffer"));
                         if rd.cur_offset - rd.offset >= rd.size as u64 {
                             break;
                         }
@@ -112,11 +112,9 @@ fn main() {
                 if let Ok(msg) = rx.recv() {
                     match msg {
                         Read(rd, buffer) => {
-                            //println!("> {:?}", buffer.as_ptr());
-                            //println!("cur offset: {}, offset: {} size: {}, cur >= offset: {}", rd.cur_offset, rd.offset, rd.size,  rd.cur_offset - rd.offset >= rd.size as u64);
                             //consume(&buffer);
                             received += buffer.len();
-                            //println!("{} {}/{}", i, received, received_size);
+                            println!("{} {}/{}", i, received, received_size);
                             if received >= received_size as usize {
                                 break;
                             }
@@ -144,13 +142,18 @@ fn main() {
 
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
-        let buffer = vec![0_u8; chunk_size];
+        let mut buffer: Vec<u8> = Vec::new();
+        buffer.reserve(last_chunk_size as usize);
+        unsafe {
+            buffer.set_len(chunk_size as usize);
+        } 
         let offset = i * chunk_size as u64;
+        let task_chunk_size = len / num_producers as u64;
         let rd = ReadData {
             offset: offset,
             cur_offset: offset,
-            size: chunk_size,
-            chunk_size: chunk_size / 2,
+            size: task_chunk_size as usize,
+            chunk_size: chunk_size as usize,
             producer_tx: tx.clone(),
             consumers: tx_consumers.clone(),
         };

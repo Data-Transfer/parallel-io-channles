@@ -7,7 +7,7 @@ use std::io::SeekFrom;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 use std::thread;
-
+use std::sync::Arc;
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
 type Offset = u64;
@@ -21,7 +21,7 @@ struct ReadData {
     consumers: Senders,
 }
 enum Message {
-    Read(ReadData, Buffer),
+     Read(ReadData, Buffer),
     //End,
 }
 fn select_tx(i: usize, c: usize, _p: usize) -> usize {
@@ -36,8 +36,8 @@ fn select_tx(i: usize, c: usize, _p: usize) -> usize {
 /// to return the buffer to he sender.
 fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
-    let num_producers = 4;
-    let num_consumers = 2;
+    let num_producers = 1; //4;
+    let num_consumers = 1; //2;
     let file = File::open(filename).expect("Cannot open file");
     let len = file.metadata().unwrap().len();
     let size = len / num_producers;
@@ -59,36 +59,38 @@ fn main() {
         use Message::*;
         thread::spawn(move || {
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
+                //let mut buffer = Arc::get_mut(&mut buf).unwrap();
                 // this should never happen
                 if rd.cur_offset - rd.offset >= rd.size as u64 {
                     break;
                 }
+                println!("** [{}] {:?}", i, buffer.as_ptr());
                 //buffer.reserve(rd.chunk_size);
+                //println!("** [{}] {:?}", i, buffer.as_ptr());
                 assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
-                //    buffer.set_len(rd.chunk_size);
+                    buffer.set_len(rd.chunk_size);
                 }
+                println!("** [{}] {:?}", i, buffer.as_ptr());
                 file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
-                println!("[{}] {:?}", i, buffer.as_ptr());
-                match file.read_exact(&mut buffer) {
+                match file.read(&mut buffer) {
                     Err(err) => {
-                        panic!("<{}", err.to_string());
+                        panic!("{}", err.to_string());
                     }
                     Ok(s) => {
-                        println!(">[{}] {:?}", i, buffer.as_ptr());
-                        //println!("Sending {} bytes to {}", s, c);
-                        //if s == 0 {
-                        //    return;
-                        //}
-                        //assert!(buffer.capacity() >= s);
-                        unsafe {
-                        //    buffer.set_len(s);
+                        println!("Sending {} bytes to {}", s, c);
+                        if s == 0 {
+                            return;
                         }
-                        rd.cur_offset += buffer.len() as u64;//   s as u64;
+                        assert!(buffer.capacity() >= s);
+                        unsafe {
+                            buffer.set_len(s);
+                        }
+                        rd.cur_offset += s as u64;
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
-                            .expect(&format!("Cannot send buffer"));// {}", s));
+                            .expect(&format!("Cannot send buffer {}", s));
                         if rd.cur_offset - rd.offset >= rd.size as u64 {
                             break;
                         }
@@ -112,11 +114,11 @@ fn main() {
                 if let Ok(msg) = rx.recv() {
                     match msg {
                         Read(rd, buffer) => {
-                            //println!("> {:?}", buffer.as_ptr());
+                            println!("> {:?}", buffer.as_ptr());
                             //println!("cur offset: {}, offset: {} size: {}, cur >= offset: {}", rd.cur_offset, rd.offset, rd.size,  rd.cur_offset - rd.offset >= rd.size as u64);
                             //consume(&buffer);
                             received += buffer.len();
-                            //println!("{} {}/{}", i, received, received_size);
+                            println!("{} {}/{}", i, received, received_size);
                             if received >= received_size as usize {
                                 break;
                             }
