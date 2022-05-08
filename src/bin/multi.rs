@@ -1,3 +1,5 @@
+/// @todo: Handle non divisible buffer length
+
 use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
@@ -14,6 +16,7 @@ struct ReadData {
     offset: Offset,
     cur_offset: Offset,
     size: usize,
+    chunk_size: usize,
     producer_tx: Sender<Message>,
     consumers: Senders,
 }
@@ -55,23 +58,26 @@ fn main() {
         let mut file = file.try_clone().unwrap();
         use Message::*;
         thread::spawn(move || {
-            let read = 0;
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
-                if rd.cur_offset - rd.offset >= rd.size as u64 { break; }
-                buffer.reserve(rd.size);
-                assert!(buffer.capacity() >= chunk_size);
+                if rd.cur_offset - rd.offset >= rd.size as u64 {
+                    break;
+                }
+                buffer.reserve(rd.chunk_size);
+                assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
-                    buffer.set_len(chunk_size);
+                    buffer.set_len(rd.chunk_size);
                 }
                 file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
                 match file.read(&mut buffer) {
                     Err(err) => {
                         panic!("{}", err.to_string());
-                    },
+                    }
                     Ok(s) => {
-                        println!("Sending {} bytes to {}", s, i);
-                        if s == 0 { return; }
+                        println!("Sending {} bytes to {}", s, c);
+                        if s == 0 {
+                            return;
+                        }
                         assert!(buffer.capacity() >= s);
                         unsafe {
                             buffer.set_len(s);
@@ -80,13 +86,13 @@ fn main() {
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
                             .expect(&format!("Cannot send buffer {}", s));
-                        if rd.cur_offset - rd.offset >= rd.size as u64 { 
-                            break; 
+                        if rd.cur_offset - rd.offset >= rd.size as u64 {
+                            break;
                         }
                     }
                 }
             }
-            println!("producer {} exiting", i );
+            println!("producer {} exiting", i);
             return;
         });
     }
@@ -95,7 +101,7 @@ fn main() {
     for i in 0..num_consumers {
         let (tx, rx) = channel();
         tx_consumers.push(tx);
-        let received_size = len / num_consumers as u64; 
+        let received_size = len / num_consumers as u64;
         use Message::*;
         let h = thread::spawn(move || loop {
             let mut received = 0;
@@ -103,20 +109,24 @@ fn main() {
                 if let Ok(msg) = rx.recv() {
                     match msg {
                         Read(rd, buffer) => {
-                                    //println!("cur offset: {}, offset: {} size: {}, cur >= offset: {}", rd.cur_offset, rd.offset, rd.size,  rd.cur_offset - rd.offset >= rd.size as u64);
-                                    //consume(&buffer);
-                                    received += buffer.len();
-                                    println!("{} {}/{}", i, received, received_size);
-                                    if received >= received_size as usize { break; }
-                                    if let Err(err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
-                                        // senders might have already exited at this point after having added
-                                        // data to the queue
-                                        // from Rust docs
-                                        //A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be receive
-                                        // TBD
-                                    }
-                        },
-                        _ => {break;}
+                            //println!("cur offset: {}, offset: {} size: {}, cur >= offset: {}", rd.cur_offset, rd.offset, rd.size,  rd.cur_offset - rd.offset >= rd.size as u64);
+                            //consume(&buffer);
+                            received += buffer.len();
+                            println!("{} {}/{}", i, received, received_size);
+                            if received >= received_size as usize {
+                                break;
+                            }
+                            if let Err(err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
+                                // senders might have already exited at this point after having added
+                                // data to the queue
+                                // from Rust docs
+                                //A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be receive
+                                // TBD
+                            }
+                        }
+                        _ => {
+                            break;
+                        }
                     }
                 } else {
                     break;
@@ -124,12 +134,11 @@ fn main() {
             }
             println!("consumer {} exiting", i);
             return;
-
         });
         consumers_handles.push(h);
     }
 
-    for i  in 0..num_producers {
+    for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
         let buffer = vec![0_u8; chunk_size];
         let offset = i * chunk_size as u64;
@@ -137,16 +146,16 @@ fn main() {
             offset: offset,
             cur_offset: offset,
             size: chunk_size,
+            chunk_size: chunk_size / 2,
             producer_tx: tx.clone(),
-            consumers: tx_consumers.clone()
+            consumers: tx_consumers.clone(),
         };
         tx.send(Message::Read(rd, buffer)).expect("Cannot send");
     }
 
-
     for h in consumers_handles {
         h.join().expect("Error joining threads");
-    } 
+    }
     println!("Finished!");
 }
 
