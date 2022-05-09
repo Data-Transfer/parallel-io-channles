@@ -24,11 +24,12 @@ struct ReadData {
     size: usize,
     chunk_size: usize,
     producer_tx: Sender<Message>,
+    consumers_per_producer: u64, 
     consumers: Senders,
 }
 enum Message {
     Read(ReadData, Buffer),
-    //End,
+    End,
 }
 fn select_tx(i: usize, c: usize, _p: usize) -> usize {
     i % c
@@ -39,17 +40,21 @@ fn select_tx(i: usize, c: usize, _p: usize) -> usize {
 /// * thread 2 consumes data and sends consumed buffer back to thread 1 so that
 ///   it can be reused
 /// The sender sends the buffer and a copy of the sender instance to be used
-/// to return the buffer to he sender.
+/// to return the buffer to he sender. This way only the number of buffers equals
+/// the number of producers regardless of the number chunks read. 
+/// Current requirement is that:
+/// * *number of producers* >= *number of consumers*
+/// * number of 
 fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let num_producers = 4;
     let num_consumers = 2;
     let len = std::fs::metadata(&filename).expect("Error reading file size").len();
-    let chunks_per_task = 4;
-    let num_chunks = chunks_per_task * num_producers;
-    let chunk_size = len / num_chunks as u64; 
-    let last_chunk_size = chunk_size + len % chunk_size;
+    let chunks_per_task = 3;
+    let task_chunk_size = (len + num_producers - 1) / num_producers;
+    let chunk_size = (task_chunk_size + chunks_per_task - 1) / chunks_per_task;
 
+    println!("File size: {}, Thread chunk size {},  Task chunk size: {}", len, task_chunk_size, chunk_size);
     let mut tx_producers: Senders = Senders::new();
 
     // currently producers exit after sending data, and consumers try
@@ -66,14 +71,13 @@ fn main() {
         thread::spawn(move || {
             let mut bf = BufReader::new(file);
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
-                // this should never happen
                 if rd.cur_offset - rd.offset >= rd.size as u64 {
-                    break;
+                   break;
                 }
-                let end_offset = rd.offset + rd.size as u64;
+                let end_offset = (rd.offset + rd.size as u64).min(len);
                 // if file_length - offset < 2 * chunk_length set chunk_size to
                 // length - offset
-                if end_offset - rd.cur_offset < (2*rd.chunk_size).try_into().unwrap() {
+                if end_offset - rd.cur_offset < 2 * rd.chunk_size as u64 {
                     rd.chunk_size = (end_offset - rd.cur_offset) as usize; 
                 }
                 assert!(buffer.capacity() >= rd.chunk_size);
@@ -81,6 +85,9 @@ fn main() {
                     buffer.set_len(rd.chunk_size);
                 }
                 bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
+                // to support multiple consumers per producer we need to keep track of
+                // the destination, by adding the element into a Set and notify all 
+                // of them when the producer exits
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
                 
                 #[cfg(feature="print_ptr")]
@@ -93,15 +100,20 @@ fn main() {
                     },
                     Ok(s) => {
                         rd.cur_offset += buffer.len() as u64;
+                        //println!("Sending message to consumer {}", c);
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
                             .expect(&format!("Cannot send buffer"));
-                        if rd.cur_offset - rd.offset >= rd.size as u64 {
+                        if rd.cur_offset >= end_offset {
+                            rd.consumers[c]
+                                .send(End)
+                                .expect(&format!("Cannot send buffer"));
                             break;
                         }
                     }
                 }
             }
+            println!("Producer {} exiting", i);
             return;
         });
     }
@@ -110,37 +122,42 @@ fn main() {
     for i in 0..num_consumers {
         let (tx, rx) = channel();
         tx_consumers.push(tx);
-        let received_size = len / num_consumers as u64;
         use Message::*;
         let h = thread::spawn(move || loop {
-            let mut received = 0;
+            let mut consumers = 0;
+            let mut consumers_per_producer = 0;
+            let mut bytes = 0;
             loop {
                 if let Ok(msg) = rx.recv() {
                     match msg {
                         Read(rd, buffer) => {
+                            bytes += buffer.len();
+                            consumers_per_producer = rd.consumers_per_producer;
                             //consume(&buffer);
-                            received += buffer.len();
-                            //println!("{} {}/{}", i, received, received_size);
-                            if received >= received_size as usize {
-                                break;
-                            }
+                            println!("{}> {} {}/{}", i, bytes, consumers, consumers_per_producer);
+                            //println!("{} Sending message to producer", i);
                             if let Err(err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
                                 // senders might have already exited at this point after having added
                                 // data to the queue
                                 // from Rust docs
-                                //A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be receive
+                                //A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be received
                                 // TBD
                             }
-                        }
-                        _ => {
-                            break;
+                        },
+                        End => {
+                            consumers += 1;
+                            if consumers >= consumers_per_producer {
+                                println!("{}> {} {}/{}", i, bytes, consumers, consumers_per_producer);
+                                break;
+                            }      
                         }
                     }
                 } else {
                     break;
                 }
             }
-            return;
+            println!("Consumer {} exiting", i);
+            return bytes;
         });
         consumers_handles.push(h);
     }
@@ -148,11 +165,11 @@ fn main() {
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
         let mut buffer: Vec<u8> = Vec::new();
-        buffer.reserve(last_chunk_size as usize);
+        //actual number is lower, but quicker to do this
+        buffer.reserve(2 * chunk_size as usize);
         unsafe {
             buffer.set_len(chunk_size as usize);
         } 
-        let task_chunk_size = len / num_producers as u64;
         let offset = i * task_chunk_size as u64;
         let rd = ReadData {
             offset: offset,
@@ -161,17 +178,19 @@ fn main() {
             chunk_size: chunk_size as usize,
             producer_tx: tx.clone(),
             consumers: tx_consumers.clone(),
+            consumers_per_producer: num_producers / num_consumers as u64
         };
         tx.send(Message::Read(rd, buffer)).expect("Cannot send");
     }
 
+    let mut bytes_consumed = 0;
     for h in consumers_handles {
-        h.join().expect("Error joining threads");
+        bytes_consumed += h.join().expect("Error joining threads");
     }
-    //println!("Finished!");
+    assert_eq!(bytes_consumed, len as usize);
 }
 
 fn consume(buffer: &Buffer) {
     let s = String::from_utf8_lossy(buffer);
-    println!("{}", s);
+    
 }
