@@ -1,5 +1,10 @@
 /// @todo: Handle non divisible buffer length
-
+/// use:
+/// cargo run --features print_ptr --bin multi_read_exact -- x | sort | uniq -c
+/// to address of allocated buffer
+/// the number of allocated buffers is always equal to the number of readers,
+/// regardless of the number of chunks used to read the file and the number
+/// of producers
 use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
@@ -7,6 +12,7 @@ use std::io::SeekFrom;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 use std::thread;
+use std::io::BufReader;
 
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
@@ -38,10 +44,8 @@ fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let num_producers = 4;
     let num_consumers = 2;
-    let file = File::open(filename).expect("Cannot open file");
-    let len = file.metadata().unwrap().len();
-    let size = len / num_producers;
-    let chunks_per_task = 2;
+    let len = std::fs::metadata(&filename).expect("Error reading file size").len();
+    let chunks_per_task = 4;
     let num_chunks = chunks_per_task * num_producers;
     let chunk_size = len / num_chunks as u64; 
     let last_chunk_size = chunk_size + len % chunk_size;
@@ -57,34 +61,37 @@ fn main() {
     for i in 0..num_producers {
         let (tx, rx) = channel();
         tx_producers.push(tx);
-        let mut file = file.try_clone().unwrap();
+        let file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         thread::spawn(move || {
+            let mut bf = BufReader::new(file);
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
                 // this should never happen
                 if rd.cur_offset - rd.offset >= rd.size as u64 {
                     break;
                 }
-                
-                // if file_length - offset <= 2 * chunk_length set chunk_size to
+                let end_offset = rd.offset + rd.size as u64;
+                // if file_length - offset < 2 * chunk_length set chunk_size to
                 // length - offset
-                if len - rd.cur_offset < (2*rd.chunk_size).try_into().unwrap() {
-                    rd.chunk_size = (len - rd.cur_offset) as usize; 
+                if end_offset - rd.cur_offset < (2*rd.chunk_size).try_into().unwrap() {
+                    rd.chunk_size = (end_offset - rd.cur_offset) as usize; 
                 }
-                
                 assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
                     buffer.set_len(rd.chunk_size);
                 }
-                file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
+                bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
-                println!("[{}] {:?}", i, buffer.as_ptr());
-                match file.read_exact(&mut buffer) {
+                
+                #[cfg(feature="print_ptr")]
+                println!("{:?}", buffer.as_ptr());
+                
+                match bf.read_exact(&mut buffer) {
                     Err(err) => {
-                        panic!("<{}", err.to_string());
+                        //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
+                        panic!("{}", err.to_string());
                     },
                     Ok(s) => {
-                        println!(">[{}] {:?}", i, buffer.as_ptr());
                         rd.cur_offset += buffer.len() as u64;
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
@@ -95,7 +102,6 @@ fn main() {
                     }
                 }
             }
-            println!("producer {} exiting", i);
             return;
         });
     }
@@ -114,7 +120,7 @@ fn main() {
                         Read(rd, buffer) => {
                             //consume(&buffer);
                             received += buffer.len();
-                            println!("{} {}/{}", i, received, received_size);
+                            //println!("{} {}/{}", i, received, received_size);
                             if received >= received_size as usize {
                                 break;
                             }
@@ -134,7 +140,6 @@ fn main() {
                     break;
                 }
             }
-            println!("consumer {} exiting", i);
             return;
         });
         consumers_handles.push(h);
@@ -147,8 +152,8 @@ fn main() {
         unsafe {
             buffer.set_len(chunk_size as usize);
         } 
-        let offset = i * chunk_size as u64;
         let task_chunk_size = len / num_producers as u64;
+        let offset = i * task_chunk_size as u64;
         let rd = ReadData {
             offset: offset,
             cur_offset: offset,
@@ -163,7 +168,7 @@ fn main() {
     for h in consumers_handles {
         h.join().expect("Error joining threads");
     }
-    println!("Finished!");
+    //println!("Finished!");
 }
 
 fn consume(buffer: &Buffer) {
