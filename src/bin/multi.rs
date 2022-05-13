@@ -1,5 +1,4 @@
 /// @todo: Handle non divisible buffer length
-
 use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
@@ -66,7 +65,7 @@ fn main() {
                 //buffer.reserve(rd.chunk_size);
                 assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
-                //    buffer.set_len(rd.chunk_size);
+                    //    buffer.set_len(rd.chunk_size);
                 }
                 file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
@@ -83,12 +82,12 @@ fn main() {
                         //}
                         //assert!(buffer.capacity() >= s);
                         unsafe {
-                        //    buffer.set_len(s);
+                            //    buffer.set_len(s);
                         }
-                        rd.cur_offset += buffer.len() as u64;//   s as u64;
+                        rd.cur_offset += buffer.len() as u64; //   s as u64;
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
-                            .expect(&format!("Cannot send buffer"));// {}", s));
+                            .expect(&format!("Cannot send buffer")); // {}", s));
                         if rd.cur_offset - rd.offset >= rd.size as u64 {
                             break;
                         }

@@ -1,6 +1,5 @@
-use std::thread;
 use std::sync::mpsc::channel;
-
+use std::thread;
 
 fn main() {
     let v = vec![0_u8; 1024];

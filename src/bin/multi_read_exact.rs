@@ -6,13 +6,13 @@
 /// regardless of the number of chunks used to read the file and the number
 /// of producers
 use std::fs::File;
+use std::io::BufReader;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::io::BufReader;
 
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
@@ -24,7 +24,7 @@ struct ReadData {
     size: usize,
     chunk_size: usize,
     producer_tx: Sender<Message>,
-    consumers_per_producer: u64, 
+    consumers_per_producer: u64,
     consumers: Senders,
 }
 enum Message {
@@ -41,20 +41,25 @@ fn select_tx(i: usize, c: usize, _p: usize) -> usize {
 ///   it can be reused
 /// The sender sends the buffer and a copy of the sender instance to be used
 /// to return the buffer to he sender. This way only the number of buffers equals
-/// the number of producers regardless of the number chunks read. 
+/// the number of producers regardless of the number chunks read.
 /// Current requirement is that:
 /// * *number of producers* >= *number of consumers*
-/// * number of 
+/// * number of
 fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let num_producers = 4;
     let num_consumers = 2;
-    let len = std::fs::metadata(&filename).expect("Error reading file size").len();
+    let len = std::fs::metadata(&filename)
+        .expect("Error reading file size")
+        .len();
     let chunks_per_task = 3;
     let task_chunk_size = (len + num_producers - 1) / num_producers;
     let chunk_size = (task_chunk_size + chunks_per_task - 1) / chunks_per_task;
 
-    println!("File size: {}, Thread chunk size {},  Task chunk size: {}", len, task_chunk_size, chunk_size);
+    println!(
+        "File size: {}, Thread chunk size {},  Task chunk size: {}",
+        len, task_chunk_size, chunk_size
+    );
     let mut tx_producers: Senders = Senders::new();
 
     // currently producers exit after sending data, and consumers try
@@ -72,13 +77,13 @@ fn main() {
             let mut bf = BufReader::new(file);
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
                 if rd.cur_offset - rd.offset >= rd.size as u64 {
-                   break;
+                    break;
                 }
                 let end_offset = (rd.offset + rd.size as u64).min(len);
                 // if file_length - offset < 2 * chunk_length set chunk_size to
                 // length - offset
                 if end_offset - rd.cur_offset < 2 * rd.chunk_size as u64 {
-                    rd.chunk_size = (end_offset - rd.cur_offset) as usize; 
+                    rd.chunk_size = (end_offset - rd.cur_offset) as usize;
                 }
                 assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
@@ -86,18 +91,18 @@ fn main() {
                 }
                 bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 // to support multiple consumers per producer we need to keep track of
-                // the destination, by adding the element into a Set and notify all 
+                // the destination, by adding the element into a Set and notify all
                 // of them when the producer exits
                 let c = select_tx(i as usize, num_consumers, num_producers as usize);
-                
-                #[cfg(feature="print_ptr")]
+
+                #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
-                
+
                 match bf.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
-                    },
+                    }
                     Ok(s) => {
                         rd.cur_offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
@@ -143,13 +148,16 @@ fn main() {
                                 //A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be received
                                 // TBD
                             }
-                        },
+                        }
                         End => {
                             consumers += 1;
                             if consumers >= consumers_per_producer {
-                                println!("{}> {} {}/{}", i, bytes, consumers, consumers_per_producer);
+                                println!(
+                                    "{}> {} {}/{}",
+                                    i, bytes, consumers, consumers_per_producer
+                                );
                                 break;
-                            }      
+                            }
                         }
                     }
                 } else {
@@ -169,7 +177,7 @@ fn main() {
         buffer.reserve(2 * chunk_size as usize);
         unsafe {
             buffer.set_len(chunk_size as usize);
-        } 
+        }
         let offset = i * task_chunk_size as u64;
         let rd = ReadData {
             offset: offset,
@@ -178,7 +186,7 @@ fn main() {
             chunk_size: chunk_size as usize,
             producer_tx: tx.clone(),
             consumers: tx_consumers.clone(),
-            consumers_per_producer: num_producers / num_consumers as u64
+            consumers_per_producer: num_producers / num_consumers as u64,
         };
         tx.send(Message::Read(rd, buffer)).expect("Cannot send");
     }
@@ -192,18 +200,16 @@ fn main() {
 
 fn consume(buffer: &Buffer) {
     let s = String::from_utf8_lossy(buffer);
-    
 }
-
 
 //fn create_consumers<F: Fn(&[u8])->()>(f: F) -> Vec<Sender<Message>> {
 //
 //}
 //
-//fn file_read(file_name: &str, 
-//             num_producers: u32, 
-//             tx_consumers: Vec<Sender<Message>>, 
+//fn file_read(file_name: &str,
+//             num_producers: u32,
+//             tx_consumers: Vec<Sender<Message>>,
 //             chunks_per_producer: u32) {
-//    
+//
 //
 //}

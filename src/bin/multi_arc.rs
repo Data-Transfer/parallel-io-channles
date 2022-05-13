@@ -1,13 +1,12 @@
 /// @todo: Handle non divisible buffer length
-
 use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
-use std::thread;
 use std::sync::Arc;
+use std::thread;
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
 type Offset = u64;
@@ -21,7 +20,7 @@ struct ReadData {
     consumers: Senders,
 }
 enum Message {
-     Read(ReadData, Buffer),
+    Read(ReadData, Buffer),
     //End,
 }
 fn select_tx(i: usize, c: usize, _p: usize) -> usize {
