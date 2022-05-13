@@ -63,7 +63,7 @@ fn main() {
         let s = String::from_utf8_lossy(buffer);
         println!("{}", &s[..10]);
     };
-    let bytes_consumed = read_file(&filename, num_producers, num_consumers, Arc::new(consume));
+    let bytes_consumed = read_file(&filename, num_producers, num_consumers, 3, Arc::new(consume));
     assert_eq!(bytes_consumed, len as usize);
 }
 
@@ -72,12 +72,12 @@ fn read_file(
     filename: &str,
     num_producers: u64,
     num_consumers: u64,
+    chunks_per_task: u64,
     f: Arc<dyn Fn(&[u8]) -> () + Send + Sync>,
 ) -> usize {
     let len = std::fs::metadata(&filename)
         .expect("Error reading file size")
         .len();
-    let chunks_per_task = 3;
     let task_chunk_size = (len + num_producers - 1) / num_producers;
     let chunk_size = (task_chunk_size + chunks_per_task - 1) / chunks_per_task;
 
