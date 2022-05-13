@@ -121,10 +121,11 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
     for i in 0..num_producers {
         let (tx, rx) = channel();
         tx_producers.push(tx);
-        let file = File::open(&filename).expect("Cannot open file");
+        //let file = File::open(&filename).expect("Cannot open file");
+        let mut file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         thread::spawn(move || {
-            let mut bf = BufReader::new(file);
+            //let mut bf = BufReader::new(file);
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
                 if rd.cur_offset - rd.offset >= rd.size as u64 {
                     break;
@@ -139,7 +140,8 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                 unsafe {
                     buffer.set_len(rd.chunk_size);
                 }
-                bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
+                //bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
+                file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
                 let num_consumers = rd.consumers.len();
                 // to support multiple consumers per producer we need to keep track of
                 // the destination, by adding the element into a Set and notify all
@@ -148,7 +150,8 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
 
-                match bf.read_exact(&mut buffer) {
+                //match bf.read_exact(&mut buffer) {
+                match file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
