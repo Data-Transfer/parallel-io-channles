@@ -1,12 +1,11 @@
-/// @todo: Handle non divisible buffer length
-/// use:
+/// usage:
 /// cargo run --features print_ptr --bin multi_read_exact -- x | sort | uniq -c
 /// to address of allocated buffer
 /// the number of allocated buffers is always equal to the number of readers,
 /// regardless of the number of chunks used to read the file and the number
 /// of producers
 use std::fs::File;
-use std::io::BufReader;
+//use std::io::BufReader;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -63,7 +62,13 @@ fn main() {
         let s = String::from_utf8_lossy(buffer);
         println!("{}", &s[..10]);
     };
-    let bytes_consumed = read_file(&filename, num_producers, num_consumers, 3, Arc::new(consume));
+    let bytes_consumed = read_file(
+        &filename,
+        num_producers,
+        num_consumers,
+        3,
+        Arc::new(consume),
+    );
     assert_eq!(bytes_consumed, len as usize);
 }
 
