@@ -24,6 +24,8 @@ struct ReadData {
     offset: Offset,
     cur_offset: Offset,
     size: usize,
+    chunk_id: u64,
+    num_chunks: u64,
     chunk_size: usize,
     producer_tx: Sender<Message>,
     consumers_per_producer: u64,
@@ -34,12 +36,19 @@ enum Message {
     End,
 }
 
+type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn Fn(&[u8], T, u64, u64) ->  R;
+
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
 fn select_tx(i: usize, c: usize, _p: usize) -> usize {
     i % c
 }
 
+fn consume(buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64) -> usize {
+        let s = String::from_utf8_lossy(buffer);
+        println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
+        buffer.len()
+}
 // -----------------------------------------------------------------------------
 /// Separate file read from data consumption using a fixed amount of memory.
 /// * thread 1 reads data from file and sends it to thread 2
@@ -58,27 +67,31 @@ fn main() {
         .len();
     let num_producers = 4;
     let num_consumers = 2;
-    let consume = |buffer: &[u8]| {
-        let s = String::from_utf8_lossy(buffer);
-        println!("{}", &s[..10]);
-    };
+    //let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
+    //    let s = String::from_utf8_lossy(buffer);
+    //    println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
+    //    buffer.len()
+    //};
+    let data = "TAG".to_string();
     let bytes_consumed = read_file(
         &filename,
         num_producers,
         num_consumers,
         3,
         Arc::new(consume),
+        data
     );
     assert_eq!(bytes_consumed, len as usize);
 }
-
 // -----------------------------------------------------------------------------
-fn read_file(
+fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Send + Sync> (
     filename: &str,
     num_producers: u64,
     num_consumers: u64,
     chunks_per_task: u64,
-    f: Arc<dyn Fn(&[u8]) -> () + Send + Sync>,
+    consumer: Arc<Consumer<T, R>>,
+    client_data: T  
+     
 ) -> usize {
     let len = std::fs::metadata(&filename)
         .expect("Error reading file size")
@@ -92,13 +105,14 @@ fn read_file(
     );
 
     let tx_producers = build_producers(num_producers, &filename);
-    let (tx_consumers, consumers_handles) = build_consumers(num_consumers, f);
-    launch(tx_producers, tx_consumers, chunk_size, task_chunk_size);
+    let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);
+    launch(tx_producers, tx_consumers, chunk_size, task_chunk_size, len);
 
     let mut bytes_consumed = 0;
 
     for h in consumers_handles {
-        bytes_consumed += h.join().expect("Error joining threads");
+        let (bytes, _chunks) = h.join().expect("Error joining threads");
+        bytes_consumed += bytes;    
     }
     bytes_consumed
 }
@@ -162,6 +176,7 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                         panic!("{}", err.to_string());
                     }
                     Ok(_s) => {
+                        rd.chunk_id += 1;
                         rd.cur_offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
                         rd.consumers[c]
@@ -185,18 +200,21 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers(
+fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync + Send>(
     num_consumers: u64,
-    f: Arc<dyn Fn(&[u8]) -> () + Sync + Send>,
-) -> (Senders, Vec<JoinHandle<usize>>) {
-    let mut consumers_handles = Vec::new();
+    f: Arc<Consumer<T, R>>,
+    data: T
+) -> (Senders, Arc<Vec<JoinHandle<(usize, Vec<Arc<R>>)>>>) {
+    let mut consumers_handles = Arc::new(Vec::new());
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
         let (tx, rx) = channel();
         tx_consumers.push(tx);
         use Message::*;
         let f = f.clone();
+        let data = data.clone();
         let h = thread::spawn(move || loop {
+            let mut ret = Vec::new();
             let mut consumers = 0;
             let mut consumers_per_producer = 0;
             let mut bytes = 0;
@@ -206,7 +224,7 @@ fn build_consumers(
                         Read(rd, buffer) => {
                             bytes += buffer.len();
                             consumers_per_producer = rd.consumers_per_producer;
-                            f(&buffer);
+                            ret.push(Arc::new(f(&buffer, data.clone(), rd.chunk_id, rd.num_chunks)));
                             println!("{}> {} {}/{}", i, bytes, consumers, consumers_per_producer);
                             //println!("{} Sending message to producer", i);
                             if let Err(_err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
@@ -233,7 +251,7 @@ fn build_consumers(
                 }
             }
             println!("Consumer {} exiting", i);
-            return bytes;
+            return (bytes, Arc::new(ret));
         });
         consumers_handles.push(h);
     }
@@ -241,9 +259,22 @@ fn build_consumers(
 }
 
 // -----------------------------------------------------------------------------
-fn launch(tx_producers: Senders, tx_consumers: Senders, chunk_size: u64, task_chunk_size: u64) {
+fn launch(tx_producers: Senders, tx_consumers: Senders, chunk_size: u64, task_chunk_size: u64, total_size: u64) {
     let num_producers = tx_producers.len() as u64;
     let num_consumers = tx_consumers.len() as u64;
+    let chunks_per_task = if task_chunk_size % chunk_size == 0 {
+        task_chunk_size / chunk_size
+    } else {
+        (task_chunk_size + chunk_size - 1) / chunk_size - 1
+    };
+    let last_task_chunk_size = task_chunk_size - (task_chunk_size * num_producers - total_size);
+    let last_chunks_per_task = if last_task_chunk_size % chunk_size == 0 {
+        last_task_chunk_size / chunk_size
+    } else {
+        (last_task_chunk_size + chunk_size - 1) / chunk_size - 1
+    };
+    let total_chunks = chunks_per_task * (num_producers - 1) + last_chunks_per_task;
+
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
         let mut buffer: Vec<u8> = Vec::new();
@@ -257,6 +288,8 @@ fn launch(tx_producers: Senders, tx_consumers: Senders, chunk_size: u64, task_ch
             offset: offset,
             cur_offset: offset,
             size: task_chunk_size as usize,
+            chunk_id: chunks_per_task * i,
+            num_chunks: total_chunks,
             chunk_size: chunk_size as usize,
             producer_tx: tx.clone(),
             consumers: tx_consumers.clone(),
