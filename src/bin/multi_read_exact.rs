@@ -93,7 +93,7 @@ fn main() {
         num_producers,
         num_consumers,
         3,
-        Arc::new(move |a, b, c, d| consume(a, b, c, d)),
+        Arc::new(consume),
         data,
     );
     assert_eq!(bytes_consumed, len as usize);
@@ -228,7 +228,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
         use Message::*;
         let cc = FnMove { f: f.clone() };
         let data = data.clone();
-        let h = thread::spawn(move || loop {
+        let h = thread::spawn(move || {
             let mut ret = Vec::new();
             let mut consumers = 0;
             let mut consumers_per_producer = 0;
