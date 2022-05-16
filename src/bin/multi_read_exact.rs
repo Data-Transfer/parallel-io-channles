@@ -14,6 +14,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
+use std::ops::Fn;
 
 // -----------------------------------------------------------------------------
 type Senders = Vec<Sender<Message>>;
@@ -36,8 +37,22 @@ enum Message {
     End,
 }
 
-//type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn FnOnce(&[u8], T, u64, u64) ->  R;
-type Consumer<T, R> = fn(&[u8], T, u64, u64) -> R;
+
+//type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn Fn(&[u8], T, u64, u64) ->  R;
+//type Consumer<T, R> = fn(&[u8], T, u64, u64) -> R;
+
+// Moving a generic Fn instance requires customization
+type Consumer<T, R> = dyn Fn(&[u8], T, u64, u64) ->  R;
+struct FnMove<T, R> {
+    f: Arc<Consumer<T, R>>
+}
+impl<T, R> FnMove<T,R> {
+    fn call(&self, buf: &[u8], t: T, a: u64, b: u64) -> R {
+        (self.f)(buf, t, a, b)
+    } 
+} 
+unsafe impl<T,R> Send for FnMove<T,R> {}
+unsafe impl<T,R> Sync for FnMove<T,R> {}
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
@@ -79,7 +94,7 @@ fn main() {
         num_producers,
         num_consumers,
         3,
-        Arc::new(consume),
+        Arc::new(move |a, b, c, d| consume(a,b,c,d)),
         data
     );
     assert_eq!(bytes_consumed, len as usize);
@@ -213,7 +228,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
         let (tx, rx) = channel();
         tx_consumers.push(tx);
         use Message::*;
-        let f = f.clone();
+        let cc = FnMove{f: f.clone()};
         let data = data.clone();
         let h = thread::spawn(move || loop {
             let mut ret = Vec::new();
@@ -226,7 +241,8 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                         Read(rd, buffer) => {
                             bytes += buffer.len();
                             consumers_per_producer = rd.consumers_per_producer;
-                            ret.push(f(&buffer, data.clone(), rd.chunk_id, rd.num_chunks));
+                            ret.push(cc.call(&buffer, data.clone(), rd.chunk_id, rd.num_chunks));
+                            //ret.push(f(&buffer, data.clone(), rd.chunk_id, rd.num_chunks));
                             println!("{}> {} {}/{}", i, bytes, consumers, consumers_per_producer);
                             //println!("{} Sending message to producer", i);
                             if let Err(_err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
