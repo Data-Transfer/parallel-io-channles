@@ -36,7 +36,8 @@ enum Message {
     End,
 }
 
-type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn Fn(&[u8], T, u64, u64) ->  R;
+//type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn FnOnce(&[u8], T, u64, u64) ->  R;
+type Consumer<T, R> = fn(&[u8], T, u64, u64) -> R;
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
@@ -44,11 +45,11 @@ fn select_tx(i: usize, c: usize, _p: usize) -> usize {
     i % c
 }
 
-fn consume(buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64) -> usize {
-        let s = String::from_utf8_lossy(buffer);
-        println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
-        buffer.len()
-}
+//fn consume(buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64) -> usize {
+//        let s = String::from_utf8_lossy(buffer);
+//        println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
+//        buffer.len()
+//}
 // -----------------------------------------------------------------------------
 /// Separate file read from data consumption using a fixed amount of memory.
 /// * thread 1 reads data from file and sends it to thread 2
@@ -67,11 +68,11 @@ fn main() {
         .len();
     let num_producers = 4;
     let num_consumers = 2;
-    //let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
-    //    let s = String::from_utf8_lossy(buffer);
-    //    println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
-    //    buffer.len()
-    //};
+    let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
+        let s = String::from_utf8_lossy(buffer);
+        println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
+        buffer.len()
+    };
     let data = "TAG".to_string();
     let bytes_consumed = read_file(
         &filename,
@@ -84,7 +85,7 @@ fn main() {
     assert_eq!(bytes_consumed, len as usize);
 }
 // -----------------------------------------------------------------------------
-fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Send + Sync> (
+fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send> (
     filename: &str,
     num_producers: u64,
     num_consumers: u64,
@@ -109,10 +110,11 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Send + Sync>
     launch(tx_producers, tx_consumers, chunk_size, task_chunk_size, len);
 
     let mut bytes_consumed = 0;
-
+    let mut ret = Vec::new();
     for h in consumers_handles {
-        let (bytes, _chunks) = h.join().expect("Error joining threads");
-        bytes_consumed += bytes;    
+        let (bytes, chunks) = h.join().expect("Error joining threads");
+        bytes_consumed += bytes;
+        ret.extend(chunks);  
     }
     bytes_consumed
 }
@@ -200,12 +202,12 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync + Send>(
+fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync + Send,>(
     num_consumers: u64,
     f: Arc<Consumer<T, R>>,
     data: T
-) -> (Senders, Arc<Vec<JoinHandle<(usize, Vec<Arc<R>>)>>>) {
-    let mut consumers_handles = Arc::new(Vec::new());
+) -> (Senders, Vec<JoinHandle<(usize, Vec<R>)>>) {
+    let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
         let (tx, rx) = channel();
@@ -224,7 +226,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                         Read(rd, buffer) => {
                             bytes += buffer.len();
                             consumers_per_producer = rd.consumers_per_producer;
-                            ret.push(Arc::new(f(&buffer, data.clone(), rd.chunk_id, rd.num_chunks)));
+                            ret.push(f(&buffer, data.clone(), rd.chunk_id, rd.num_chunks));
                             println!("{}> {} {}/{}", i, bytes, consumers, consumers_per_producer);
                             //println!("{} Sending message to producer", i);
                             if let Err(_err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
@@ -251,7 +253,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                 }
             }
             println!("Consumer {} exiting", i);
-            return (bytes, Arc::new(ret));
+            return (bytes, ret);
         });
         consumers_handles.push(h);
     }
