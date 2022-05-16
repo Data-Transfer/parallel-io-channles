@@ -9,12 +9,12 @@ use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::ops::Fn;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use std::ops::Fn;
 
 // -----------------------------------------------------------------------------
 type Senders = Vec<Sender<Message>>;
@@ -37,22 +37,21 @@ enum Message {
     End,
 }
 
-
 //type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn Fn(&[u8], T, u64, u64) ->  R;
 //type Consumer<T, R> = fn(&[u8], T, u64, u64) -> R;
 
 // Moving a generic Fn instance requires customization
-type Consumer<T, R> = dyn Fn(&[u8], T, u64, u64) ->  R;
+type Consumer<T, R> = dyn Fn(&[u8], T, u64, u64) -> R;
 struct FnMove<T, R> {
-    f: Arc<Consumer<T, R>>
+    f: Arc<Consumer<T, R>>,
 }
-impl<T, R> FnMove<T,R> {
+impl<T, R> FnMove<T, R> {
     fn call(&self, buf: &[u8], t: T, a: u64, b: u64) -> R {
         (self.f)(buf, t, a, b)
-    } 
-} 
-unsafe impl<T,R> Send for FnMove<T,R> {}
-unsafe impl<T,R> Sync for FnMove<T,R> {}
+    }
+}
+unsafe impl<T, R> Send for FnMove<T, R> {}
+unsafe impl<T, R> Sync for FnMove<T, R> {}
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
@@ -94,20 +93,19 @@ fn main() {
         num_producers,
         num_consumers,
         3,
-        Arc::new(move |a, b, c, d| consume(a,b,c,d)),
-        data
+        Arc::new(move |a, b, c, d| consume(a, b, c, d)),
+        data,
     );
     assert_eq!(bytes_consumed, len as usize);
 }
 // -----------------------------------------------------------------------------
-fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send> (
+fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>(
     filename: &str,
     num_producers: u64,
     num_consumers: u64,
     chunks_per_task: u64,
     consumer: Arc<Consumer<T, R>>,
-    client_data: T  
-     
+    client_data: T,
 ) -> usize {
     let len = std::fs::metadata(&filename)
         .expect("Error reading file size")
@@ -129,7 +127,7 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
     for h in consumers_handles {
         let (bytes, chunks) = h.join().expect("Error joining threads");
         bytes_consumed += bytes;
-        ret.extend(chunks);  
+        ret.extend(chunks);
     }
     bytes_consumed
 }
@@ -217,10 +215,10 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync + Send,>(
+fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync + Send>(
     num_consumers: u64,
     f: Arc<Consumer<T, R>>,
-    data: T
+    data: T,
 ) -> (Senders, Vec<JoinHandle<(usize, Vec<R>)>>) {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
@@ -228,7 +226,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
         let (tx, rx) = channel();
         tx_consumers.push(tx);
         use Message::*;
-        let cc = FnMove{f: f.clone()};
+        let cc = FnMove { f: f.clone() };
         let data = data.clone();
         let h = thread::spawn(move || loop {
             let mut ret = Vec::new();
@@ -277,7 +275,13 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
 }
 
 // -----------------------------------------------------------------------------
-fn launch(tx_producers: Senders, tx_consumers: Senders, chunk_size: u64, task_chunk_size: u64, total_size: u64) {
+fn launch(
+    tx_producers: Senders,
+    tx_consumers: Senders,
+    chunk_size: u64,
+    task_chunk_size: u64,
+    total_size: u64,
+) {
     let num_producers = tx_producers.len() as u64;
     let num_consumers = tx_consumers.len() as u64;
     let chunks_per_task = if task_chunk_size % chunk_size == 0 {
