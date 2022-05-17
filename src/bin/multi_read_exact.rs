@@ -235,7 +235,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
         let data = data.clone();
         let h = thread::spawn(move || {
             let mut ret = Vec::new();
-            let mut consumers = 0;
+            let mut producers_end_signal_count = 0;
             let mut producers_per_consumer = 0;
             let mut bytes = 0;
             loop {
@@ -246,7 +246,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                             producers_per_consumer = rd.producers_per_consumer;
                             ret.push(cc.call(&buffer, data.clone(), rd.chunk_id, rd.num_chunks));
                             //ret.push(f(&buffer, data.clone(), rd.chunk_id, rd.num_chunks));
-                            println!("{}> {} {}/{}", i, bytes, consumers, producers_per_consumer);
+                            println!("{}> {} {}/{}", i, bytes, producers_end_signal_count, producers_per_consumer);
                             //println!("{} Sending message to producer", i);
                             if let Err(_err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
                                 // senders might have already exited at this point after having added
@@ -257,11 +257,11 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                             }
                         }
                         End => {
-                            consumers += 1;
-                            if consumers >= producers_per_consumer {
+                            producers_end_signal_count += 1;
+                            if producers_end_signal_count >= producers_per_consumer {
                                 println!(
                                     "{}> {} {}/{}",
-                                    i, bytes, consumers, producers_per_consumer
+                                    i, bytes, producers_end_signal_count, producers_per_consumer
                                 );
                                 break;
                             }
@@ -288,7 +288,6 @@ fn launch(
     total_size: u64,
 ) {
     let num_producers = tx_producers.len() as u64;
-    let num_consumers = tx_consumers.len() as u64;
     let chunks_per_task = if task_chunk_size % chunk_size == 0 {
         task_chunk_size / chunk_size
     } else {
