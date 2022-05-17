@@ -93,7 +93,8 @@ fn main() {
     };
     let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
         //let s = String::from_utf8_lossy(buffer);
-        println!("{}/{} {}", chunk_id, num_chunks, tag); //, &s[..10]);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        println!("Consumer: {}/{} {} {}", chunk_id, num_chunks, tag, buffer.len());
         buffer.len()
     };
     let data = "TAG".to_string();
@@ -126,7 +127,7 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
     let chunk_size = (task_chunk_size + chunks_per_task - 1) / chunks_per_task;
 
     println!(
-        "File size: {}, Thread chunk size {},  Task chunk size: {}, Chunks_per_task: {}",
+        "File size: {}, Thread chunk size {},  Task chunk size: {}, Chunks per task: {}, ",
         len, task_chunk_size, chunk_size, chunks_per_task
     );
 
@@ -224,9 +225,8 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                             .expect(&format!("Cannot send buffer"));
                         if cur_offset as u64 >= end_offset {
                             consumers.iter().for_each(|i| {
-                                rd.consumers[*i]
-                                    .send(End)
-                                    .expect(&format!("Cannot send buffer"))
+                                 let _ = rd.consumers[*i]
+                                    .send(End);
                             });
                             break;
                         }
