@@ -36,9 +36,6 @@ enum Message {
     End,
 }
 
-//type Consumer<T: 'static + Send + Sync + Clone, R: Sized + 'static + Clone + Sync + Send> = dyn Fn(&[u8], T, u64, u64) ->  R;
-//type Consumer<T, R> = fn(&[u8], T, u64, u64) -> R;
-
 // Moving a generic Fn instance requires customization
 type Consumer<T, R> = dyn Fn(&[u8], T, u64, u64) -> R;
 struct FnMove<T, R> {
@@ -58,11 +55,6 @@ fn select_tx(_i: usize, prev: usize, c: usize, _p: usize) -> usize {
     (prev + 1) % c
 }
 
-//fn consume(buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64) -> usize {
-//        let s = String::from_utf8_lossy(buffer);
-//        println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
-//        buffer.len()
-//}
 // -----------------------------------------------------------------------------
 /// Separate file read from data consumption using a fixed amount of memory.
 /// * thread 1 reads data from file and sends it to thread 2
@@ -116,6 +108,7 @@ fn main() {
     );
     assert_eq!(bytes_consumed, len as usize);
 }
+
 // -----------------------------------------------------------------------------
 fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>(
     filename: &str,
@@ -157,13 +150,6 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
     }
     bytes_consumed
 }
-
-// -----------------------------------------------------------------------------
-/// Callback receiving data read from file and sent from producer to consumer
-//fn consume(buffer: &[u8]) {
-//    let s = String::from_utf8_lossy(buffer);
-//    println!("{}", &s[..10]);
-//}
 
 // -----------------------------------------------------------------------------
 /// Build producers and return array of Sender objects.
@@ -315,7 +301,6 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                         }
                     }
                 } else {
-                    println!("{}", i);
                     break;
                 }
             }
@@ -338,7 +323,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
 /// buffer and therefore more than one buffer per queue is required.
 fn launch(
     tx_producers: Senders,
-    tx_cnsumers: Senders,
+    tx_consumers: Senders,
     chunk_size: u64,
     task_chunk_size: u64,
     total_size: u64,
