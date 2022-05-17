@@ -82,8 +82,8 @@ fn main() {
     let num_producers = 4;
     let num_consumers = 2;
     let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
-        let s = String::from_utf8_lossy(buffer);
-        println!("{}/{} {} {}", chunk_id, num_chunks, tag, &s[..10]);
+        //let s = String::from_utf8_lossy(buffer);
+        println!("{}/{} {}", chunk_id, num_chunks, tag);//, &s[..10]);
         buffer.len()
     };
     let data = "TAG".to_string();
@@ -201,7 +201,7 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
                             .expect(&format!("Cannot send buffer"));
-                        if cur_off >= end_offset {
+                        if cur_offset as u64 >= end_offset {
                             consumers.iter().for_each(|i|
                                                 rd.consumers[*i]
                                                     .send(End)
@@ -319,7 +319,7 @@ fn launch(
             chunk_size: chunk_size as usize,
             producer_tx: tx.clone(),
             consumers: tx_consumers.clone(),
-            consumers_per_producer: num_producers / num_consumers as u64,
+            consumers_per_producer: num_producers as u64//num_producers / num_consumers as u64,
         };
         tx.send(Message::Read(rd, buffer)).expect("Cannot send");
     }
