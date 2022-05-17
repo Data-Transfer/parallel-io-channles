@@ -23,7 +23,6 @@ type Offset = u64;
 #[derive(Clone)]
 struct ReadData {
     offset: Offset,
-    cur_offset: Offset,
     size: usize,
     chunk_id: u64,
     num_chunks: u64,
@@ -55,8 +54,8 @@ unsafe impl<T, R> Sync for FnMove<T, R> {}
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
-fn select_tx(i: usize, c: usize, _p: usize) -> usize {
-    i % c
+fn select_tx(_i: usize, prev: usize, c: usize, _p: usize) -> usize {
+    (prev + 1) % c
 }
 
 //fn consume(buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64) -> usize {
@@ -160,27 +159,32 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
         use Message::*;
         thread::spawn(move || {
             //let mut bf = BufReader::new(file);
+            let mut consumers = std::collections::HashSet::new();
+            let mut prev_consumer = i as usize;
+            let mut cur_offset: i64 = -1;
             while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
-                if rd.cur_offset - rd.offset >= rd.size as u64 {
-                    break;
-                }
+                if cur_offset < 0 { cur_offset = rd.offset as i64; }
                 let end_offset = (rd.offset + rd.size as u64).min(len);
+                let cur_off = cur_offset as u64;
                 // if file_length - offset < 2 * chunk_length set chunk_size to
                 // length - offset
-                if end_offset - rd.cur_offset < 2 * rd.chunk_size as u64 {
-                    rd.chunk_size = (end_offset - rd.cur_offset) as usize;
+                if end_offset - cur_off < 2 * rd.chunk_size as u64 {
+                    rd.chunk_size = (end_offset - cur_off) as usize;
                 }
                 assert!(buffer.capacity() >= rd.chunk_size);
                 unsafe {
                     buffer.set_len(rd.chunk_size);
                 }
                 //bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
-                file.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
+                file.seek(SeekFrom::Start(cur_off)).unwrap();
                 let num_consumers = rd.consumers.len();
                 // to support multiple consumers per producer we need to keep track of
                 // the destination, by adding the element into a Set and notify all
                 // of them when the producer exits
-                let c = select_tx(i as usize, num_consumers, num_producers as usize);
+                 
+                let c = select_tx(i as usize, prev_consumer, num_consumers, num_producers as usize);
+                consumers.insert(c);
+                prev_consumer = c;
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
 
@@ -192,15 +196,16 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                     }
                     Ok(_s) => {
                         rd.chunk_id += 1;
-                        rd.cur_offset += buffer.len() as u64;
+                        cur_offset += buffer.len() as i64;
                         //println!("Sending message to consumer {}", c);
                         rd.consumers[c]
                             .send(Read(rd.clone(), buffer))
                             .expect(&format!("Cannot send buffer"));
-                        if rd.cur_offset >= end_offset {
-                            rd.consumers[c]
-                                .send(End)
-                                .expect(&format!("Cannot send buffer"));
+                        if cur_off >= end_offset {
+                            consumers.iter().for_each(|i|
+                                                rd.consumers[*i]
+                                                    .send(End)
+                                                    .expect(&format!("Cannot send buffer")));
                             break;
                         }
                     }
@@ -308,7 +313,6 @@ fn launch(
         let offset = i * task_chunk_size as u64;
         let rd = ReadData {
             offset: offset,
-            cur_offset: offset,
             size: task_chunk_size as usize,
             chunk_id: chunks_per_task * i,
             num_chunks: total_chunks,
