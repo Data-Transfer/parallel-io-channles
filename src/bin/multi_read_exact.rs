@@ -91,12 +91,17 @@ fn main() {
     let num_buffers: u64 = if let Some(p) = std::env::args().nth(5) {
         p.parse().expect("Wrong num buffers format")
     } else {
-       2 * num_producers 
+        2 * num_producers
     };
     let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
-        //let s = String::from_utf8_lossy(buffer);
         std::thread::sleep(std::time::Duration::from_secs(1));
-        //println!("Consumer: {}/{} {} {}", chunk_id, num_chunks, tag, buffer.len());
+        println!(
+            "Consumer: {}/{} {} {}",
+            chunk_id,
+            num_chunks,
+            tag,
+            buffer.len()
+        );
         buffer.len()
     };
     let data = "TAG".to_string();
@@ -126,11 +131,13 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
         .expect("Error reading file size")
         .len();
     let producer_chunk_size = (len + num_producers - 1) / num_producers;
-    let last_producer_chunk_size = len - (num_producers -1) * producer_chunk_size;//num_producers * producer_chunk_size - len + producer_chunk_size;
+    let last_producer_chunk_size = len - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - len + producer_chunk_size;
     let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
-    let last_task_chunk_size = producer_chunk_size - (chunks_per_producer - 1) * task_chunk_size;//chunks_per_producer * task_chunk_size -  producer_chunk_size + task_chunk_size;
-    let last_prod_task_chunk_size = (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
-    let last_last_prod_task_chunk_size = last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size;//last_prod_task_chunk_size * chunks_per_producer - last_producer_chunk_size + last_prod_task_chunk_size;
+    let last_task_chunk_size = producer_chunk_size - (chunks_per_producer - 1) * task_chunk_size; //chunks_per_producer * task_chunk_size -  producer_chunk_size + task_chunk_size;
+    let last_prod_task_chunk_size =
+        (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
+    let last_last_prod_task_chunk_size =
+        last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; //last_prod_task_chunk_size * chunks_per_producer - last_producer_chunk_size + last_prod_task_chunk_size;
     println!(
         r#"
            File size: {}, 
@@ -142,20 +149,22 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
            Last last producer task chunk size: {}
            Chunks per producer: {}, 
            Num buffers: {}"#,
-        len, 
+        len,
         producer_chunk_size,
-        last_producer_chunk_size, 
+        last_producer_chunk_size,
         task_chunk_size,
         last_task_chunk_size,
         last_prod_task_chunk_size,
         last_last_prod_task_chunk_size,
-        chunks_per_producer, 
+        chunks_per_producer,
         num_buffers
     );
 
     let tx_producers = build_producers(num_producers, &filename);
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);
-    let reserved_size = last_task_chunk_size.max(last_last_prod_task_chunk_size).max(task_chunk_size);
+    let reserved_size = last_task_chunk_size
+        .max(last_last_prod_task_chunk_size)
+        .max(task_chunk_size);
     println!("reserved_size: {}", reserved_size);
     launch(
         tx_producers,
@@ -255,9 +264,8 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
                             (0..rd.consumers.len()).for_each(|x| {
-                                 //println!("{}>> Sending End of message to consumer {}", i, x);
-                                 let _ = rd.consumers[x]
-                                    .send(End(i, num_producers));
+                                //println!("{}>> Sending End of message to consumer {}", i, x);
+                                let _ = rd.consumers[x].send(End(i, num_producers));
                             });
                             break;
                         }
@@ -317,12 +325,14 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                                 // TBD
                                 //break;
                             }
-                        },
+                        }
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
-                            println!("{}> received End signal from {} {}/{}", i, _prod_id,producers_end_signal_count, num_producers);
+                            println!(
+                                "{}> received End signal from {} {}/{}",
+                                i, _prod_id, producers_end_signal_count, num_producers
+                            );
                             if producers_end_signal_count >= num_producers {
-
                                 //println!(
                                 //    "{}>> {} {}/{}",
                                 //    i, bytes, producers_end_signal_count, producers_per_consumer
@@ -367,7 +377,7 @@ fn launch(
     reserved_size: usize,
     num_buffers: u64,
 ) {
-    let num_producers = tx_producers.len() as u64; 
+    let num_producers = tx_producers.len() as u64;
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
         let offset = (i as u64) * producer_chunk_size;
@@ -376,16 +386,27 @@ fn launch(
         let num_buffers = chunks_per_producer.min(num_buffers);
         for j in 0..num_buffers {
             let mut buffer: Vec<u8> = Vec::new();
-            let chunk_size = if i != num_producers - 1 { task_chunk_size } else { last_producer_task_chunk_size };
+            let chunk_size = if i != num_producers - 1 {
+                task_chunk_size
+            } else {
+                last_producer_task_chunk_size
+            };
             //actual number is lower, but quicker to do this
             buffer.reserve(reserved_size);
             unsafe {
                 buffer.set_len(chunk_size as usize);
             }
-            println!("chunk_size: {}, producer_chunk_size: {}", chunk_size, producer_chunk_size);
+            println!(
+                "chunk_size: {}, producer_chunk_size: {}",
+                chunk_size, producer_chunk_size
+            );
             let rd = ReadData {
                 offset: offset,
-                size: if i != num_producers - 1 {producer_chunk_size as usize} else {last_producer_chunk_size as usize},
+                size: if i != num_producers - 1 {
+                    producer_chunk_size as usize
+                } else {
+                    last_producer_chunk_size as usize
+                },
                 chunk_id: chunks_per_producer * i + j,
                 chunk_size: chunk_size as usize,
                 producer_tx: tx.clone(),
