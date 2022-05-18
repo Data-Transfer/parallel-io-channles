@@ -30,12 +30,12 @@ struct ReadData {
     producer_tx: Sender<Message>,
     consumers: Senders,
     num_chunks: u64,
-    producers_per_consumer: u64
 }
 type ProducerId = u64;
+type NumProducers = u64;
 enum Message {
     Read(ReadData, Buffer),
-    End(ProducerId),
+    End(ProducerId, NumProducers),
 }
 
 // Moving a generic Fn instance requires customization
@@ -163,7 +163,6 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
         producer_chunk_size,
         last_producer_chunk_size,
         task_chunk_size,
-        last_task_chunk_size,
         last_prod_task_chunk_size,
         chunks_per_producer,
         reserved_size as usize,
@@ -233,7 +232,7 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                     num_consumers,
                     num_producers as usize,
                 );
-                println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
+                //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 consumers.insert(c);
                 prev_consumer = c;
                 #[cfg(feature = "print_ptr")]
@@ -255,10 +254,10 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                             .expect(&format!("Cannot send buffer"));
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
-                            consumers.iter().for_each(|x| {
-                                 println!("{}>> Sending End of message to consumer {}", i, x);
-                                 let _ = rd.consumers[*x]
-                                    .send(End(i));
+                            (0..rd.consumers.len()).for_each(|x| {
+                                 //println!("{}>> Sending End of message to consumer {}", i, x);
+                                 let _ = rd.consumers[x]
+                                    .send(End(i, num_producers));
                             });
                             break;
                         }
@@ -289,7 +288,6 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
         let data = data.clone();
         let h = thread::spawn(move || {
             let mut ret = Vec::new();
-            let mut producers_per_consumer = 0;
             let mut producers_end_signal_count = 0;
             let mut bytes = 0;
             loop {
@@ -300,9 +298,8 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                 if let Ok(msg) = rx.recv() {
                     match msg {
                         Read(rd, buffer) => {
-                            if producers_per_consumer == 0 { producers_per_consumer = rd.producers_per_consumer; }
                             bytes += buffer.len();
-                            println!("{}> Received {} bytes from [{}]", i, buffer.len(), rd.producer_id);
+                            //println!("{}> Received {} bytes from [{}]", i, buffer.len(), rd.producer_id);
                             ret.push((
                                 rd.chunk_id,
                                 cc.call(&buffer, data.clone(), rd.chunk_id, rd.num_chunks),
@@ -321,10 +318,10 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                                 //break;
                             }
                         },
-                        End(_prod_id) => {
+                        End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
-                            println!("{}> received End signal from {}", i, _prod_id);
-                            if producers_per_consumer == producers_end_signal_count {
+                            println!("{}> received End signal from {} {}/{}", i, _prod_id,producers_end_signal_count, num_producers);
+                            if producers_end_signal_count >= num_producers {
 
                                 //println!(
                                 //    "{}>> {} {}/{}",
@@ -335,6 +332,9 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                         }
                     }
                 } else {
+                    // we do not care if the communication channel was closed
+                    // since it only happen when the producer is finished
+                    // of an error elsewhere occurred
                     //println!("{}> Exiting", i);
                     //break;
                 }
@@ -362,7 +362,6 @@ fn launch(
     producer_chunk_size: u64,
     last_producer_chunk_size: u64,
     task_chunk_size: u64,
-    last_task_chunk_size: u64,
     last_producer_task_chunk_size: u64,
     chunks_per_producer: u64,
     reserved_size: usize,
@@ -393,7 +392,6 @@ fn launch(
                 consumers: tx_consumers.clone(),
                 producer_id: 0, // will be overwritten
                 num_chunks: chunks_per_producer * num_producers,
-                producers_per_consumer: num_producers
             };
             tx.send(Message::Read(rd, buffer)).expect("Cannot send");
         }
