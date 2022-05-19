@@ -205,7 +205,7 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
         let (tx, rx) = channel();
         tx_producers.push(tx);
         //let file = File::open(&filename).expect("Cannot open file");
-        let mut file = File::open(&filename).expect("Cannot open file");
+        let file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         thread::spawn(move || {
             //let mut bf = BufReader::new(file);
@@ -217,6 +217,8 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                 if offset < 0 {
                     offset = rd.offset as i64;
                     end_offset = (offset as u64 + rd.size as u64).min(len);
+                    //file.seek(SeekFrom::Start(offset as u64)).unwrap();
+
                 }
                 // if file_length - offset < 2 * chunk_length set chunk_size to
                 // length - offset
@@ -230,7 +232,7 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                     buffer.set_len(rd.chunk_size);
                 }
                 //bf.seek(SeekFrom::Start(rd.cur_offset)).unwrap();
-                file.seek(SeekFrom::Start(offset as u64)).unwrap();
+                //file.seek(SeekFrom::Current(df as u64)).unwrap();
                 let num_consumers = rd.consumers.len();
                 // to support multiple consumers per producer we need to keep track of
                 // the destination, by adding the element into a Set and notify all
@@ -248,12 +250,12 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                 println!("{:?}", buffer.as_ptr());
 
                 //match bf.read_exact(&mut buffer) {
-                match file.read_exact(&mut buffer) {
+                match load_exact_bytes_at(&mut buffer, &file, offset as u64) {//}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
-                    }
-                    Ok(_s) => {
+                    },
+                    Ok(()) => {
                         rd.chunk_id += 1;
                         offset += buffer.len() as i64;
                         //println!("Sending message to consumer {}", c);
@@ -417,4 +419,24 @@ fn launch(
             tx.send(Message::Read(rd, buffer)).expect("Cannot send");
         }
     }
+}
+
+#[cfg(any(windows))]
+fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) {
+    use std::os::windows::fs::FileExt;
+    let mut data_read = 0;
+    while data_read < buffer.len() {
+        data_read += file.seek_read(buffer, offset).unwrap();
+    }
+}
+
+#[cfg(any(unix))]
+fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
+    use std::os::unix::fs::FileExt;
+    let mut data_read = 0;
+    while data_read < buffer.len() {
+        data_read += file.read_at(buffer, offset).map_err(|err| err.to_string())?;
+
+    }
+    Ok(())
 }
