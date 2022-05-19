@@ -216,7 +216,6 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                     offset = rd.offset as i64;
                     end_offset = (offset as u64 + rd.size as u64).min(len);
                     //file.seek(SeekFrom::Start(offset as u64)).unwrap();
-
                 }
                 // if file_length - offset < 2 * chunk_length set chunk_size to
                 // length - offset
@@ -247,11 +246,12 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                 println!("{:?}", buffer.as_ptr());
 
                 //match bf.read_exact(&mut buffer) {
-                match load_exact_bytes_at(&mut buffer, &file, offset as u64) {//}, &file, offset)//file.read_exact(&mut buffer) {
+                match load_exact_bytes_at(&mut buffer, &file, offset as u64) {
+                    //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
-                    },
+                    }
                     Ok(()) => {
                         rd.chunk_id += 1;
                         offset += buffer.len() as i64;
@@ -432,7 +432,9 @@ fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result
     use std::os::unix::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {
-        data_read += file.read_at(&mut buffer[data_read..], offset).map_err(|err| err.to_string())?;
+        data_read += file
+            .read_at(&mut buffer[data_read..], offset)
+            .map_err(|err| err.to_string())?;
     }
     Ok(())
 }

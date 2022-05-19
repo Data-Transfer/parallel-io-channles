@@ -21,10 +21,8 @@ struct ReadData {
     offset: Offset,
     chunk_id: u64,
     producer_id: u64,
-    //chunk_size: usize,
     consumers: Senders,
     producer_tx: Sender<Message>,
-    //num_chunks: u64,
 }
 type ProducerId = u64;
 type NumProducers = u64;
@@ -64,8 +62,11 @@ fn select_tx(_i: usize, prev: usize, c: usize, _p: usize) -> usize {
 /// * *number of producers* >= *number of consumers*
 /// Total memory used = # producers x chunk_size
 fn main() {
-    let buffer_size: u64 = std::env::args().nth(1).expect("Missing buffer size")
-                           .parse().expect("Wrong buffer size format");
+    let buffer_size: u64 = std::env::args()
+        .nth(1)
+        .expect("Missing buffer size")
+        .parse()
+        .expect("Wrong buffer size format");
     let filename = std::env::args().nth(2).expect("Missing file name");
     let num_producers: u64 = std::env::args()
         .nth(3)
@@ -87,7 +88,7 @@ fn main() {
     } else {
         2 * num_producers
     };
-    let producer = |buffer: &mut Vec<u8>, _tag: String, _offset: u64| -> Result<(), String>{
+    let producer = |buffer: &mut Vec<u8>, _tag: String, _offset: u64| -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_secs(1));
         *buffer = vec![1_u8; buffer.len()];
         Ok(())
@@ -101,9 +102,11 @@ fn main() {
         Arc::new(producer),
         data,
         num_buffers,
-        buffer_size
+        buffer_size,
     );
-    let len = std::fs::metadata(&filename).expect("Cannot access file").len();
+    let len = std::fs::metadata(&filename)
+        .expect("Cannot access file")
+        .len();
     assert_eq!(bytes_consumed, len as usize);
     std::fs::remove_file(&filename).expect("Cannot delete file");
 }
@@ -117,7 +120,7 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
     producer: Arc<Producer<T>>,
     client_data: T,
     num_buffers: u64,
-    total_size: u64
+    total_size: u64,
 ) -> usize {
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - len + producer_chunk_size;
@@ -183,7 +186,8 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
     total_size: u64,
     chunks_per_producer: u64,
     f: Arc<Producer<T>>,
-    data: T) -> Senders {
+    data: T,
+) -> Senders {
     let mut tx_producers: Senders = Senders::new();
     // currently producers exit after sending data, and consumers try
     // to send data back to disconnected producers, ignoring the returned
@@ -228,11 +232,12 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
 
-                match cc.call(&mut buffer, data.clone(), offset as u64) {//}, &file, offset)//file.read_exact(&mut buffer) {
+                match cc.call(&mut buffer, data.clone(), offset as u64) {
+                    //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
-                    },
+                    }
                     Ok(()) => {
                         rd.chunk_id = id;
                         id += 1;
@@ -263,10 +268,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers(
-    num_consumers: u64,
-    file_name: &str
-) -> (Senders, Vec<JoinHandle<usize>>) {
+fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHandle<usize>>) {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
@@ -275,7 +277,10 @@ fn build_consumers(
         use Message::*;
         let file_name = file_name.to_owned();
         let h = thread::spawn(move || {
-            let file = File::options().write(true).open(&file_name).expect("Cannot open file");
+            let file = File::options()
+                .write(true)
+                .open(&file_name)
+                .expect("Cannot open file");
             let mut producers_end_signal_count = 0;
             let mut bytes = 0;
             loop {
@@ -289,7 +294,8 @@ fn build_consumers(
                             bytes += buffer.len();
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), rd.producer_id);
                             //file.seek(SeekFrom::Start(rd.offset)).expect("Cannot move file pointer");
-                            write_bytes_at(&buffer, &file,  rd.offset).expect("Cannot write to file");
+                            write_bytes_at(&buffer, &file, rd.offset)
+                                .expect("Cannot write to file");
                             //println!(
                             //    "{}> {} {}/{}",
                             //    i, bytes, producers_end_signal_count, producers_per_consumer
@@ -368,7 +374,6 @@ fn launch(
             } else {
                 last_producer_task_chunk_size
             };
-            //actual number is lower, but quicker to do this
             buffer.reserve(reserved_size);
             unsafe {
                 buffer.set_len(chunk_size as usize);
@@ -380,38 +385,25 @@ fn launch(
             let rd = ReadData {
                 offset: offset,
                 chunk_id: chunks_per_producer * i + j,
-                //chunk_size: chunk_size as usize,
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
                 producer_id: 0, // will be overwritten
-                //num_chunks: chunks_per_producer * num_producers,
             };
             tx.send(Message::Read(rd, buffer)).expect("Cannot send");
         }
     }
 }
-/*
 #[cfg(any(windows))]
-fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) {
+fn write_bytes_at(buffer: &Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
     use std::os::windows::fs::FileExt;
-    let mut data_read = 0;
-    while data_read < buffer.len() {
-        data_read += file.seek_read(buffer, offset).unwrap();
-    }
+    file.seek_write(buffer, offset)
+        .map_err(|err| err.to_string())?;
 }
 
 #[cfg(any(unix))]
-fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
-    use std::os::unix::fs::FileExt;
-    let mut data_read = 0;
-    while data_read < buffer.len() {
-        data_read += file.read_at(&mut buffer[data_read..], offset).map_err(|err| err.to_string())?;
-    }
-    Ok(())
-}*/
-#[cfg(any(unix))]
 fn write_bytes_at(buffer: &Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
     use std::os::unix::fs::FileExt;
-    file.write_all_at(buffer, offset).map_err(|err| err.to_string())?;
+    file.write_all_at(buffer, offset)
+        .map_err(|err| err.to_string())?;
     Ok(())
 }
