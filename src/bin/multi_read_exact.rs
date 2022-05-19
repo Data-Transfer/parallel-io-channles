@@ -435,8 +435,7 @@ fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result
     use std::os::unix::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {
-        data_read += file.read_at(buffer, offset).map_err(|err| err.to_string())?;
-
+        data_read += file.read_at(&mut buffer[data_read..], offset).map_err(|err| err.to_string())?;
     }
     Ok(())
 }
