@@ -208,8 +208,6 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
         let file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         thread::spawn(move || {
-            //let mut bf = BufReader::new(file);
-            let mut consumers = std::collections::HashSet::new();
             let mut prev_consumer = i as usize;
             let mut offset: i64 = -1;
             let mut end_offset: u64 = 0;
@@ -244,7 +242,6 @@ fn build_producers(num_producers: u64, filename: &str) -> Senders {
                     num_producers as usize,
                 );
                 //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
-                consumers.insert(c);
                 prev_consumer = c;
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
