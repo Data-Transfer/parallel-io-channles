@@ -1,9 +1,8 @@
 /// usage:
-/// cargo run --features print_ptr --bin multi_read_exact -- x | sort | uniq -c
-/// to address of allocated buffer
-/// the number of allocated buffers is always equal to the number of readers,
-/// regardless of the number of chunks used to read the file and the number
-/// of producers
+/// Parallel async file write from memory buffers.
+/// The number of allocated buffers is always equal to the number of chunks
+/// x number of buffers; all buffers are allocated one before the threads
+/// are executed.
 use std::fs::File;
 use std::ops::Fn;
 use std::sync::mpsc::channel;
@@ -17,17 +16,20 @@ type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
 type Offset = u64;
 #[derive(Clone)]
-struct ReadData {
+struct Config {
     offset: Offset,
     chunk_id: u64,
     producer_id: u64,
     consumers: Senders,
     producer_tx: Sender<Message>,
 }
+type ProducerConfig = Config;
+type ConsumerConfig = Config;
 type ProducerId = u64;
 type NumProducers = u64;
 enum Message {
-    Read(ReadData, Buffer),
+    Consume(ConsumerConfig, Buffer),
+    Produce(ProducerConfig, Buffer),
     End(ProducerId, NumProducers),
 }
 
@@ -211,7 +213,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
             //let mut bf = BufReader::new(file);
             let mut id = chunks_per_producer * i;
             let mut prev_consumer = i as usize;
-            while let Ok(Read(mut rd, mut buffer)) = rx.recv() {
+            while let Ok(Produce(mut rd, mut buffer)) = rx.recv() {
                 let chunk_size = task_chunk_size.min(end_offset - offset);
                 assert!(buffer.capacity() >= chunk_size as usize);
                 unsafe {
@@ -246,7 +248,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                         //println!("Sending message to consumer {}", c);
                         rd.producer_id = i;
                         rd.consumers[c]
-                            .send(Read(rd.clone(), buffer))
+                            .send(Consume(rd.clone(), buffer))
                             .expect(&format!("Cannot send buffer"));
                         if offset >= end_offset {
                             // signal the end of stream to consumers
@@ -290,7 +292,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                 // failing and consumers exiting
                 if let Ok(msg) = rx.recv() {
                     match msg {
-                        Read(rd, buffer) => {
+                        Consume(rd, buffer) => {
                             bytes += buffer.len();
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), rd.producer_id);
                             //file.seek(SeekFrom::Start(rd.offset)).expect("Cannot move file pointer");
@@ -301,7 +303,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                             //    i, bytes, producers_end_signal_count, producers_per_consumer
                             //);
                             //println!("{} Sending message to producer", i);
-                            if let Err(_err) = rd.producer_tx.send(Read(rd.clone(), buffer)) {
+                            if let Err(_err) = rd.producer_tx.send(Produce(rd.clone(), buffer)) {
                                 // senders might have already exited at this point after having added
                                 // data to the queue
                                 // from Rust docs
@@ -323,6 +325,9 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                                 //);
                                 break;
                             }
+                        }
+                        _ => {
+                            panic!("Wrong message type");
                         }
                     }
                 } else {
@@ -382,14 +387,14 @@ fn launch(
                 "chunk_size: {}, producer_chunk_size: {}",
                 chunk_size, producer_chunk_size
             );
-            let rd = ReadData {
+            let rd = ProducerConfig {
                 offset: offset,
                 chunk_id: chunks_per_producer * i + j,
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
                 producer_id: 0, // will be overwritten
             };
-            tx.send(Message::Read(rd, buffer)).expect("Cannot send");
+            tx.send(Message::Produce(rd, buffer)).expect("Cannot send");
         }
     }
 }
