@@ -18,8 +18,6 @@ type Offset = u64;
 #[derive(Clone)]
 struct Config {
     offset: Offset,
-    chunk_id: u64,
-    producer_id: u64,
     consumers: Senders,
     producer_tx: Sender<Message>,
 }
@@ -211,7 +209,6 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
         let data = data.clone();
         thread::spawn(move || {
             //let mut bf = BufReader::new(file);
-            let mut id = chunks_per_producer * i;
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
                 let chunk_size = task_chunk_size.min(end_offset - offset);
@@ -241,12 +238,10 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                         panic!("{}", err.to_string());
                     },
                     Ok(()) => {
-                        cfg.chunk_id = id;
-                        id += 1;
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
-                        cfg.producer_id = i;
+                        //cfg.producer_id = i;
                         cfg.consumers[c]
                             .send(Consume(cfg.clone(), buffer))
                             .expect(&format!("Cannot send buffer"));
@@ -372,7 +367,7 @@ fn launch(
         //number of messages/buffers to be sent to each producer's queue before
         //the computation starts
         let num_buffers = chunks_per_producer.min(num_buffers);
-        for j in 0..num_buffers {
+        for _ in 0..num_buffers {
             let mut buffer: Vec<u8> = Vec::new();
             let chunk_size = if i != num_producers - 1 {
                 task_chunk_size
@@ -389,10 +384,8 @@ fn launch(
             );
             let rd = ProducerConfig {
                 offset: offset,
-                chunk_id: chunks_per_producer * i + j,
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
-                producer_id: 0, // will be overwritten
             };
             tx.send(Message::Produce(rd, buffer)).expect("Cannot send");
         }
