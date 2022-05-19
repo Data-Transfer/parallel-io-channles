@@ -213,13 +213,13 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
             //let mut bf = BufReader::new(file);
             let mut id = chunks_per_producer * i;
             let mut prev_consumer = i as usize;
-            while let Ok(Produce(mut rd, mut buffer)) = rx.recv() {
+            while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
                 let chunk_size = task_chunk_size.min(end_offset - offset);
                 assert!(buffer.capacity() >= chunk_size as usize);
                 unsafe {
                     buffer.set_len(chunk_size as usize);
                 }
-                let num_consumers = rd.consumers.len();
+                let num_consumers = cfg.consumers.len();
                 // to support multiple consumers per producer we need to keep track of
                 // the destination, by adding the element into a Set and notify all
                 // of them when the producer exits
@@ -237,24 +237,24 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                 match cc.call(&mut buffer, data.clone(), offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
-                        //panic!("offset: {} cur_offset: {} buffer.len: {}", rd.offset, rd.cur_offset, buffer.len());
+                        //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
-                    }
+                    },
                     Ok(()) => {
-                        rd.chunk_id = id;
+                        cfg.chunk_id = id;
                         id += 1;
-                        rd.offset = offset;
+                        cfg.offset = offset;
                         offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
-                        rd.producer_id = i;
-                        rd.consumers[c]
-                            .send(Consume(rd.clone(), buffer))
+                        cfg.producer_id = i;
+                        cfg.consumers[c]
+                            .send(Consume(cfg.clone(), buffer))
                             .expect(&format!("Cannot send buffer"));
                         if offset >= end_offset {
                             // signal the end of stream to consumers
-                            (0..rd.consumers.len()).for_each(|x| {
+                            (0..cfg.consumers.len()).for_each(|x| {
                                 //println!("{}>> Sending End of message to consumer {}", i, x);
-                                let _ = rd.consumers[x].send(End(i, num_producers));
+                                let _ = cfg.consumers[x].send(End(i, num_producers));
                             });
                             break;
                         }
@@ -292,18 +292,18 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                 // failing and consumers exiting
                 if let Ok(msg) = rx.recv() {
                     match msg {
-                        Consume(rd, buffer) => {
+                        Consume(cfg, buffer) => {
                             bytes += buffer.len();
-                            //println!("{}> Received {} bytes from [{}]", i, buffer.len(), rd.producer_id);
-                            //file.seek(SeekFrom::Start(rd.offset)).expect("Cannot move file pointer");
-                            write_bytes_at(&buffer, &file, rd.offset)
+                            //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
+                            //file.seek(SeekFrom::Start(cfg.offset)).expect("Cannot move file pointer");
+                            write_bytes_at(&buffer, &file, cfg.offset)
                                 .expect("Cannot write to file");
                             //println!(
                             //    "{}> {} {}/{}",
                             //    i, bytes, producers_end_signal_count, producers_per_consumer
                             //);
                             //println!("{} Sending message to producer", i);
-                            if let Err(_err) = rd.producer_tx.send(Produce(rd.clone(), buffer)) {
+                            if let Err(_err) = cfg.producer_tx.send(Produce(cfg.clone(), buffer)) {
                                 // senders might have already exited at this point after having added
                                 // data to the queue
                                 // from Rust docs
