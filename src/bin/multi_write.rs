@@ -1,8 +1,7 @@
-/// usage:
 /// Parallel async file write from memory buffers.
-/// The number of allocated buffers is always equal to the number of chunks
-/// x number of buffers; all buffers are allocated one before the threads
-/// are executed.
+/// The number of allocated buffers is always equal to the number of buffers
+/// per producer times the number of buffers; all buffers are allocated
+/// once before the threads are executed.
 use std::fs::File;
 use std::ops::Fn;
 use std::sync::mpsc::channel;
@@ -12,6 +11,8 @@ use std::thread;
 use std::thread::JoinHandle;
 
 // -----------------------------------------------------------------------------
+// TYPES
+
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
 type Offset = u64;
@@ -21,13 +22,14 @@ struct Config {
     consumers: Senders,
     producer_tx: Sender<Message>,
 }
+// Using the same type to communicate between producers and consumers.
 type ProducerConfig = Config;
 type ConsumerConfig = Config;
 type ProducerId = u64;
 type NumProducers = u64;
 enum Message {
-    Consume(ConsumerConfig, Buffer),
-    Produce(ProducerConfig, Buffer),
+    Consume(ConsumerConfig, Buffer), // sent to consumers
+    Produce(ProducerConfig, Buffer), // sent to producers
     End(ProducerId, NumProducers),
 }
 
@@ -46,21 +48,24 @@ unsafe impl<T> Sync for FnMove<T> {}
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
-fn select_tx(_i: usize, prev: usize, c: usize, _p: usize) -> usize {
-    (prev + 1) % c
+fn select_tx(
+    _i: usize,
+    previous_consumer_id: usize,
+    num_consumers: usize,
+    _num_producers: usize,
+) -> usize {
+    (previous_consumer_id + 1) % num_consumers
 }
 
 // -----------------------------------------------------------------------------
-/// Separate file read from data consumption using a fixed amount of memory.
-/// * thread 1 reads data from file and sends it to thread 2
-/// * thread 2 consumes data and sends consumed buffer back to thread 1 so that
+/// Separate file write from data prduction using a fixed amount of memory.
+/// * thread 1 reads generates data and sends it to thread 2
+/// * thread 2 writes data to file sends consumed buffer back to thread 1 so that
 ///   it can be reused
 /// The sender sends the buffer and a copy of the sender instance to be used
 /// to return the buffer to he sender. This way only the number of buffers equals
-/// the number of producers regardless of the number chunks read.
-/// Current requirement is that:
-/// * *number of producers* >= *number of consumers*
-/// Total memory used = # producers x chunk_size
+/// the number of producers times the number of buffers per producer,
+/// regardless of the number of chunks generated.
 fn main() {
     let buffer_size: u64 = std::env::args()
         .nth(1)
@@ -154,7 +159,7 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
     let file = File::create(filename).expect("Cannot create file");
     file.set_len(total_size).expect("Cannot set file length");
     drop(file);
-    let tx_producers = build_producers(num_producers, total_size, 2, producer, client_data);
+    let tx_producers = build_producers(num_producers, total_size, chunks_per_producer, producer, client_data);
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, filename);
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
@@ -189,20 +194,22 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
     data: T,
 ) -> Senders {
     let mut tx_producers: Senders = Senders::new();
-    // currently producers exit after sending data, and consumers try
+    // currently producers exit after sending all data, and consumers might try
     // to send data back to disconnected producers, ignoring the returned
-    // send() error
+    // send() error;
     // another option is to have consumers return and 'End' signal when done
     // consuming data and producers exiting after al the consumers have
     // returned the signal
     for i in 0..num_producers {
         let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
-        let _last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
+        let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
         let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
         let (tx, rx) = channel();
         tx_producers.push(tx);
         let mut offset = producer_chunk_size * i;
-        let end_offset = (offset + producer_chunk_size).min(total_size);
+        let end_offset = if i != num_producers - 1 { 
+            offset + producer_chunk_size
+           }  else { offset + last_producer_chunk_size };
         //let file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         let cc = FnMove { f: f.clone() };
@@ -212,6 +219,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
                 let chunk_size = task_chunk_size.min(end_offset - offset);
+                //println!("producer_chunk_size: {} chunks_per_producers {} task_chunk_size: {} capacity: {}, chunk_size: {}", producer_chunk_size, chunks_per_producer, task_chunk_size, buffer.capacity(), chunk_size);
                 assert!(buffer.capacity() >= chunk_size as usize);
                 unsafe {
                     buffer.set_len(chunk_size as usize);
@@ -236,7 +244,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
                         panic!("{}", err.to_string());
-                    },
+                    }
                     Ok(()) => {
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
@@ -348,8 +356,9 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
 /// returned to the producer who sent them.
 /// One producer can send messages to multiple consumers.
 /// To allow for asynchronous data consumption, a consumers needs to be able
-/// to consume the data while the producer is writing data to a different
-/// buffer and therefore more than one buffer per queue is required.
+/// to consume the data in a bffer while the producer is writing data to a different
+/// buffer and therefore more than one buffer per producer is required for
+/// the operation to perform asynchronously.
 fn launch(
     tx_producers: Senders,
     tx_consumers: Senders,
@@ -358,7 +367,7 @@ fn launch(
     last_producer_task_chunk_size: u64,
     chunks_per_producer: u64,
     reserved_size: usize,
-    num_buffers: u64,
+    num_buffers_per_producer: u64,
 ) {
     let num_producers = tx_producers.len() as u64;
     for i in 0..num_producers {
@@ -366,7 +375,7 @@ fn launch(
         let offset = (i as u64) * producer_chunk_size;
         //number of messages/buffers to be sent to each producer's queue before
         //the computation starts
-        let num_buffers = chunks_per_producer.min(num_buffers);
+        let num_buffers = chunks_per_producer.min(num_buffers_per_producer);
         for _ in 0..num_buffers {
             let mut buffer: Vec<u8> = Vec::new();
             let chunk_size = if i != num_producers - 1 {
@@ -378,10 +387,11 @@ fn launch(
             unsafe {
                 buffer.set_len(chunk_size as usize);
             }
-            println!(
+            /*println!(
                 "chunk_size: {}, producer_chunk_size: {}",
-                chunk_size, producer_chunk_size
-            );
+                chunk_size,
+                producer_chunk_size
+            );*/
             let rd = ProducerConfig {
                 offset: offset,
                 producer_tx: tx.clone(),
