@@ -30,7 +30,8 @@ type NumProducers = u64;
 enum Message {
     Consume(ConsumerConfig, Buffer), // sent to consumers
     Produce(ProducerConfig, Buffer), // sent to producers
-    End(ProducerId, NumProducers),
+    End(ProducerId, NumProducers), // sent from producers to all consumers
+                                   // to signal end of transmission
 }
 
 // Moving a generic Fn instance requires customization
@@ -204,6 +205,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
         let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
         let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
         let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
+        let last_prod_task_chunk_size = (last_producer_chunk_size + chunks_per_producer -1) / chunks_per_producer;
         let (tx, rx) = channel();
         tx_producers.push(tx);
         let mut offset = producer_chunk_size * i;
@@ -218,7 +220,11 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
             //let mut bf = BufReader::new(file);
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
-                let chunk_size = task_chunk_size.min(end_offset - offset);
+                let chunk_size = if i != num_producers - 1 { 
+                    task_chunk_size.min(end_offset - offset) 
+                } else {
+                    last_prod_task_chunk_size.min(end_offset - offset)
+                };
                 //println!("producer_chunk_size: {} chunks_per_producers {} task_chunk_size: {} capacity: {}, chunk_size: {}", producer_chunk_size, chunks_per_producer, task_chunk_size, buffer.capacity(), chunk_size);
                 assert!(buffer.capacity() >= chunk_size as usize);
                 unsafe {
