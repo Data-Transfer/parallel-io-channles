@@ -45,7 +45,8 @@ impl<T> FnMove<T> {
     fn call(&self, buf: &mut Vec<u8>, t: T, a: u64) -> Result<(), String> {
         (self.f)(buf, t, a)
     }
-}
+} 
+
 unsafe impl<T> Send for FnMove<T> {}
 unsafe impl<T> Sync for FnMove<T> {}
 
@@ -119,11 +120,20 @@ fn main() {
     std::fs::remove_file(&filename).expect("Cannot delete file");
 }
 
-// |||..........|.....||..........|.....||... ||...|.|||
-//    <---1----><--2->                          <3><4>
-// .  <-------5------>                          <--6->
-//    <---------------------- 7 -------------------->
-
+/// Write data to file.
+/// ```no_run
+/// |||..........|.....||..........|.....||...>> ||...|.|||
+///    <---1----><--2->                            <3><4>
+///    <-------5------>                            <--6->
+///    <-------------------------7---------------------->
+/// ```
+/// 1. task_chunk_size
+/// 2. last_task_chunk_size
+/// 3. last_producer_task_chunk_size
+/// 4. last_producer_last_task_chunk_size
+/// 5. producer_chunk_size
+/// 6. last_producer_chunk_size
+/// 7. total_size
 // -----------------------------------------------------------------------------
 fn write_to_file<T: 'static + Clone + Send + Sync>(
     filename: &str,
