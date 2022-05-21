@@ -34,12 +34,12 @@ enum Message {
 }
 
 // Moving a generic Fn instance requires customization
-type Consumer<T, R> = dyn Fn(&[u8], T, u64, u64) -> R;
+type Consumer<T, R> = dyn Fn(&[u8], &T, u64, u64) -> R;
 struct FnMove<T, R> {
     f: Arc<Consumer<T, R>>,
 }
 impl<T, R> FnMove<T, R> {
-    fn call(&self, buf: &[u8], t: T, a: u64, b: u64) -> R {
+    fn call(&self, buf: &[u8], t: &T, a: u64, b: u64) -> R {
         (self.f)(buf, t, a, b)
     }
 }
@@ -92,7 +92,7 @@ fn main() {
     } else {
         2
     };
-    let consume = |buffer: &[u8], tag: String, chunk_id: u64, num_chunks: u64| {
+    let consume = |buffer: &[u8], tag: &String, chunk_id: u64, num_chunks: u64| {
         std::thread::sleep(std::time::Duration::from_secs(1));
         println!(
             "Consumer: {}/{} {} {}",
@@ -324,7 +324,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
                             ret.push((
                                 cfg.chunk_id,
-                                cc.call(&buffer, data.clone(), cfg.chunk_id, cfg.num_chunks),
+                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks),
                             ));
                             //println!(
                             //    "{}> {} {}/{}",

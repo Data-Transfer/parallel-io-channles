@@ -35,14 +35,14 @@ enum Message {
 }
 
 // Moving a generic Fn instance requires customization
-type Producer<T> = dyn Fn(&mut Vec<u8>, T, u64) -> Result<(), String>;
+type Producer<T> = dyn Fn(&mut Vec<u8>, &T, u64) -> Result<(), String>;
 struct FnMove<T> {
     f: Arc<Producer<T>>,
 }
 
 /// Fn is wrapped inside an FnMove struct so that it can be moved
 impl<T> FnMove<T> {
-    fn call(&self, buf: &mut Vec<u8>, t: T, a: u64) -> Result<(), String> {
+    fn call(&self, buf: &mut Vec<u8>, t: &T, a: u64) -> Result<(), String> {
         (self.f)(buf, t, a)
     }
 } 
@@ -98,7 +98,7 @@ fn main() {
         2
         //u64::min(chunks_per_producer, 2)
     };
-    let producer = |buffer: &mut Vec<u8>, _tag: String, _offset: u64| -> Result<(), String> {
+    let producer = |buffer: &mut Vec<u8>, _tag: &String, _offset: u64| -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_secs(1));
         *buffer = vec![1_u8; buffer.len()];
         Ok(())
@@ -272,7 +272,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
 
-                match cc.call(&mut buffer, data.clone(), offset as u64) {
+                match cc.call(&mut buffer, &data, offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
