@@ -30,8 +30,8 @@ type NumProducers = u64;
 enum Message {
     Consume(ConsumerConfig, Buffer), // sent to consumers
     Produce(ProducerConfig, Buffer), // sent to producers
-    End(ProducerId, NumProducers), // sent from producers to all consumers
-                                   // to signal end of transmission
+    End(ProducerId, NumProducers),   // sent from producers to all consumers
+                                     // to signal end of transmission
 }
 
 // Moving a generic Fn instance requires customization
@@ -39,6 +39,8 @@ type Producer<T> = dyn Fn(&mut Vec<u8>, T, u64) -> Result<(), String>;
 struct FnMove<T> {
     f: Arc<Producer<T>>,
 }
+
+/// Fn is wrapped inside an FnMove struct so that it can be moved
 impl<T> FnMove<T> {
     fn call(&self, buf: &mut Vec<u8>, t: T, a: u64) -> Result<(), String> {
         (self.f)(buf, t, a)
@@ -68,7 +70,7 @@ fn select_tx(
 /// the number of producers times the number of buffers per producer,
 /// regardless of the number of chunks generated.
 fn main() {
-    let buffer_size: u64 = std::env::args()
+    let buffer_size: usize = std::env::args()
         .nth(1)
         .expect("Missing buffer size")
         .parse()
@@ -117,6 +119,11 @@ fn main() {
     std::fs::remove_file(&filename).expect("Cannot delete file");
 }
 
+// |||..........|.....||..........|.....||... ||...|.|||
+//    <---1----><--2->                          <3><4>
+// .  <-------5------>                          <--6->
+//    <---------------------- 7 -------------------->
+
 // -----------------------------------------------------------------------------
 fn write_to_file<T: 'static + Clone + Send + Sync>(
     filename: &str,
@@ -126,8 +133,9 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
     producer: Arc<Producer<T>>,
     client_data: T,
     num_buffers: u64,
-    total_size: u64,
+    total_size: usize,
 ) -> usize {
+    let total_size = total_size as u64;
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - len + producer_chunk_size;
     let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
@@ -160,7 +168,13 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
     let file = File::create(filename).expect("Cannot create file");
     file.set_len(total_size).expect("Cannot set file length");
     drop(file);
-    let tx_producers = build_producers(num_producers, total_size, chunks_per_producer, producer, client_data);
+    let tx_producers = build_producers(
+        num_producers,
+        total_size,
+        chunks_per_producer,
+        producer,
+        client_data,
+    );
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, filename);
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
@@ -205,13 +219,16 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
         let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
         let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
         let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
-        let last_prod_task_chunk_size = (last_producer_chunk_size + chunks_per_producer -1) / chunks_per_producer;
+        let last_prod_task_chunk_size =
+            (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
         let (tx, rx) = channel();
         tx_producers.push(tx);
         let mut offset = producer_chunk_size * i;
-        let end_offset = if i != num_producers - 1 { 
+        let end_offset = if i != num_producers - 1 {
             offset + producer_chunk_size
-           }  else { offset + last_producer_chunk_size };
+        } else {
+            offset + last_producer_chunk_size
+        };
         //let file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         let cc = FnMove { f: f.clone() };
@@ -220,8 +237,8 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
             //let mut bf = BufReader::new(file);
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
-                let chunk_size = if i != num_producers - 1 { 
-                    task_chunk_size.min(end_offset - offset) 
+                let chunk_size = if i != num_producers - 1 {
+                    task_chunk_size.min(end_offset - offset)
                 } else {
                     last_prod_task_chunk_size.min(end_offset - offset)
                 };
