@@ -5,10 +5,6 @@
 /// regardless of the number of chunks used to read the file and the number
 /// of producers
 use std::fs::File;
-//use std::io::BufReader;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
 use std::ops::Fn;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
@@ -19,7 +15,6 @@ use std::thread::JoinHandle;
 // -----------------------------------------------------------------------------
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
-type Offset = u64;
 #[derive(Clone)]
 struct Config {
     chunk_id: u64,
@@ -166,7 +161,7 @@ fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>
            Last producer task chunk size: {},
            Last last producer task chunk size: {}
            Chunks per producer: {}, 
-           Num buffers: {}"#,
+           Tasks per producer: {}"#,
         total_size,
         producer_chunk_size,
         last_producer_chunk_size,

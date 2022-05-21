@@ -165,7 +165,7 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
            Last producer task chunk size: {},
            Last last producer task chunk size: {}
            Chunks per producer: {}, 
-           Num buffers: {}"#,
+           Tasks per producer: {}"#,
         total_size,
         producer_chunk_size,
         last_producer_chunk_size,
