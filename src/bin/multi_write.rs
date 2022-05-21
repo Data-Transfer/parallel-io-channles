@@ -92,10 +92,11 @@ fn main() {
         .expect("Missing num chunks per producer")
         .parse()
         .unwrap();
-    let num_buffers: u64 = if let Some(p) = std::env::args().nth(5) {
-        p.parse().expect("Wrong num buffers format")
+    let num_tasks_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
+        p.parse().expect("Wrong num tasks format")
     } else {
-        2 * num_producers
+        2
+        //u64::min(chunks_per_producer, 2)
     };
     let producer = |buffer: &mut Vec<u8>, _tag: String, _offset: u64| -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -110,7 +111,7 @@ fn main() {
         chunks_per_producer,
         Arc::new(producer),
         data,
-        num_buffers,
+        num_tasks_per_producer,
         buffer_size,
     );
     let len = std::fs::metadata(&filename)
@@ -120,6 +121,7 @@ fn main() {
     std::fs::remove_file(&filename).expect("Cannot delete file");
 }
 
+// -----------------------------------------------------------------------------
 /// Write data to file.
 /// ```no_run
 /// |||..........|.....||..........|.....||...>> ||...|.|||
@@ -134,7 +136,6 @@ fn main() {
 /// 5. producer_chunk_size
 /// 6. last_producer_chunk_size
 /// 7. total_size
-// -----------------------------------------------------------------------------
 fn write_to_file<T: 'static + Clone + Send + Sync>(
     filename: &str,
     num_producers: u64,
@@ -142,7 +143,7 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
     chunks_per_producer: u64,
     producer: Arc<Producer<T>>,
     client_data: T,
-    num_buffers: u64,
+    num_tasks_per_producer: u64,
     total_size: usize,
 ) -> usize {
     let total_size = total_size as u64;
@@ -173,7 +174,7 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
         last_prod_task_chunk_size,
         last_last_prod_task_chunk_size,
         chunks_per_producer,
-        num_buffers,
+        num_tasks_per_producer,
     );
     let file = File::create(filename).expect("Cannot create file");
     file.set_len(total_size).expect("Cannot set file length");
@@ -198,7 +199,7 @@ fn write_to_file<T: 'static + Clone + Send + Sync>(
         task_chunk_size,
         chunks_per_producer,
         reserved_size as usize,
-        num_buffers,
+        num_tasks_per_producer,
     );
 
     let mut bytes_consumed = 0;
@@ -219,6 +220,11 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
     data: T,
 ) -> Senders {
     let mut tx_producers: Senders = Senders::new();
+    let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
+    let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
+    let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
+    let last_prod_task_chunk_size =
+        (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     // currently producers exit after sending all data, and consumers might try
     // to send data back to disconnected producers, ignoring the returned
     // send() error;
@@ -226,11 +232,6 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
     // consuming data and producers exiting after al the consumers have
     // returned the signal
     for i in 0..num_producers {
-        let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
-        let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
-        let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
-        let last_prod_task_chunk_size =
-            (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
         let (tx, rx) = channel();
         tx_producers.push(tx);
         let mut offset = producer_chunk_size * i;
@@ -239,7 +240,6 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
         } else {
             offset + last_producer_chunk_size
         };
-        //let file = File::open(&filename).expect("Cannot open file");
         use Message::*;
         let cc = FnMove { f: f.clone() };
         let data = data.clone();
@@ -400,8 +400,11 @@ fn launch(
     last_producer_task_chunk_size: u64,
     chunks_per_producer: u64,
     reserved_size: usize,
-    num_buffers_per_producer: u64,
+    num_tasks_per_producer: u64,
 ) {
+    //number of read tasks performer/producer = number of buffers sent to
+    //producer
+    let num_buffers_per_producer = num_tasks_per_producer;
     let num_producers = tx_producers.len() as u64;
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
@@ -420,17 +423,12 @@ fn launch(
             unsafe {
                 buffer.set_len(chunk_size as usize);
             }
-            /*println!(
-                "chunk_size: {}, producer_chunk_size: {}",
-                chunk_size,
-                producer_chunk_size
-            );*/
-            let rd = ProducerConfig {
+            let cfg = ProducerConfig {
                 offset: offset,
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
             };
-            tx.send(Message::Produce(rd, buffer)).expect("Cannot send");
+            tx.send(Message::Produce(cfg, buffer)).expect("Cannot send");
         }
     }
 }
