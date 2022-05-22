@@ -1,7 +1,10 @@
-/// Parallel async file read into memory buffers.
-/// The number of allocated buffers is always equal to the number of buffers
-/// per producer times the number of producers; all buffers are allocated
-/// once before threads are executed.
+
+/// usage:
+/// cargo run --features print_ptr --bin multi_read_exact -- x | sort | uniq -c
+/// to address of allocated buffer
+/// the number of allocated buffers is always equal to the number of readers,
+/// regardless of the number of chunks used to read the file and the number
+/// of producers
 use std::fs::File;
 use std::ops::Fn;
 use std::sync::mpsc::channel;

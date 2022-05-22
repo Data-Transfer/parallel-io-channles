@@ -1,7 +1,7 @@
 /// Parallel async file write from memory buffers.
 /// The number of allocated buffers is always equal to the number of buffers
-/// per producer times the number of buffers; all buffers are allocated
-/// once before the threads are executed.
+/// per producer times the number of producers; all buffers are allocated
+/// once before the are executed.
 use std::fs::File;
 use std::ops::Fn;
 use std::sync::mpsc::channel;
