@@ -1,10 +1,8 @@
 
-/// usage:
-/// cargo run --features print_ptr --bin multi_read_exact -- x | sort | uniq -c
-/// to address of allocated buffer
-/// the number of allocated buffers is always equal to the number of readers,
-/// regardless of the number of chunks used to read the file and the number
-/// of producers
+/// Parallel async file read into memory buffers.
+/// The number of allocated buffers is always equal to the number of buffers
+/// per producer times the number of producers; all buffers are allocated
+/// once before threads are executed.
 use std::fs::File;
 use std::ops::Fn;
 use std::sync::mpsc::channel;
@@ -68,54 +66,6 @@ fn select_tx(
 /// to return the buffer to he sender. This way only the number of buffers equals
 /// the number of producers times the number of buffers per producer,
 /// regardless of the number of chunks generated.
-fn main() {
-    let filename = std::env::args().nth(1).expect("Missing file name");
-    let len = std::fs::metadata(&filename)
-        .expect("Error reading file size")
-        .len();
-    let num_producers: u64 = std::env::args()
-        .nth(2)
-        .expect("Missing num producers")
-        .parse()
-        .unwrap();
-    let num_consumers: u64 = std::env::args()
-        .nth(3)
-        .expect("Missing num consumers")
-        .parse()
-        .unwrap();
-    let chunks_per_producer: u64 = std::env::args()
-        .nth(4)
-        .expect("Missing num chunks per producer")
-        .parse()
-        .unwrap();
-    let num_tasks_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
-        p.parse().expect("Wrong num tasks format")
-    } else {
-        2
-    };
-    let consume = |buffer: &[u8], tag: &String, chunk_id: u64, num_chunks: u64| {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        println!(
-            "Consumer: {}/{} {} {}",
-            chunk_id,
-            num_chunks,
-            tag,
-            buffer.len()
-        );
-        buffer.len()
-    };
-    let data = "TAG".to_string();
-    let bytes_consumed = read_file(
-        &filename,
-        num_producers,
-        num_consumers,
-        chunks_per_producer,
-        Arc::new(consume),
-        data,
-        num_tasks_per_producer,
-    );
-    assert_eq!(bytes_consumed, len as usize);
-}
 
 // -----------------------------------------------------------------------------
 /// Write data to file.
@@ -132,7 +82,7 @@ fn main() {
 /// 5. producer_chunk_size
 /// 6. last_producer_chunk_size
 /// 7. total_size
-fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>(
+pub fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>(
     filename: &str,
     num_producers: u64,
     num_consumers: u64,

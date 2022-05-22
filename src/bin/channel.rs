@@ -10,7 +10,7 @@ fn main() {
         println!("{:?}", v.as_ptr());
     });
     let h2 = thread::spawn(move || {
-        tx.send(v);
+        tx.send(v).expect("Error sending");
     });
     h.join().unwrap();
     h2.join().unwrap();
