@@ -1,4 +1,3 @@
-
 //------------------------------------------------------------------------------
 use par_io::par_read::read_file;
 use std::sync::mpsc::channel;
@@ -7,7 +6,7 @@ use std::sync::mpsc::Sender;
 #[derive(Clone)]
 struct Data {
     _tx: Sender<String>,
-    msg: String
+    msg: String,
 }
 
 // -----------------------------------------------------------------------------
@@ -44,23 +43,24 @@ fn main() {
     } else {
         2
     };
-    let consume = |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64| -> Result<usize, String>{
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        println!(
-            "Consumer: {}/{} {} {}",
-            chunk_id,
-            num_chunks,
-            data.msg,
-            buffer.len()
-        );
-        //_data.tx.send(buffer.len().to_string()).expect("Error sending");
-        Ok(buffer.len())
-    };
-    let (tx,_rx) = channel::<String>();
+    let consume =
+        |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64| -> Result<usize, String> {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            println!(
+                "Consumer: {}/{} {} {}",
+                chunk_id,
+                num_chunks,
+                data.msg,
+                buffer.len()
+            );
+            //_data.tx.send(buffer.len().to_string()).expect("Error sending");
+            Ok(buffer.len())
+        };
+    let (tx, _rx) = channel::<String>();
     //std::thread::spawn( move || {
     //    //only move rx
     //    let rx = rx;
-    //    while let Ok(msg) = rx.recv() { 
+    //    while let Ok(msg) = rx.recv() {
     //        println!("{}", msg);
     //    }});
     let tag = "TAG".to_string();
@@ -70,13 +70,17 @@ fn main() {
         num_consumers,
         chunks_per_producer,
         std::sync::Arc::new(consume),
-        Data{_tx: tx, msg: tag},
+        Data { _tx: tx, msg: tag },
         num_tasks_per_producer,
-    ) { 
+    ) {
         Ok(v) => {
-            let bytes_consumed = v.iter().fold(0, |acc, x| if let (_,Ok(b)) = x { acc + b } else {acc} ); 
+            let bytes_consumed = v
+                .iter()
+                .fold(0, |acc, x| if let (_, Ok(b)) = x { acc + b } else { acc });
             assert_eq!(bytes_consumed, len as usize);
-        },
-        Err(err) => { eprintln!("{}", err.to_string()); }
+        }
+        Err(err) => {
+            eprintln!("{}", err.to_string());
+        }
     }
 }

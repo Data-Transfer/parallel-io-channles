@@ -55,7 +55,6 @@ fn select_tx(
     (previous_consumer_id + 1) % num_consumers
 }
 
-
 // -----------------------------------------------------------------------------
 /// Separate file write from data prduction using a fixed amount of memory.
 /// * thread 1 reads generates data and sends it to thread 2
@@ -89,10 +88,12 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     consumer: Arc<Consumer<T, R>>,
     client_data: T,
     num_tasks_per_producer: u64,
-) -> Result<Vec<(u64,R)>, String> {
-    let total_size = match std::fs::metadata(&filename) { 
-                        Ok(m) => m.len(),
-                        Err(err) => { return Err(err.to_string());}
+) -> Result<Vec<(u64, R)>, String> {
+    let total_size = match std::fs::metadata(&filename) {
+        Ok(m) => m.len(),
+        Err(err) => {
+            return Err(err.to_string());
+        }
     };
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - total_size + producer_chunk_size;
@@ -145,8 +146,12 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     let mut ret = Vec::new();
     for h in consumers_handles {
         match h.join() {
-            Ok(chunks) => {ret.extend(chunks);},
-            Err(err) => {return Err(format!("{:?}", err));}
+            Ok(chunks) => {
+                ret.extend(chunks);
+            }
+            Err(err) => {
+                return Err(format!("{:?}", err));
+            }
         }
     }
     Ok(ret)
@@ -154,8 +159,14 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
 
 // -----------------------------------------------------------------------------
 /// Build producers and return array of Sender objects.
-fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str) -> Result<Senders, String> {
-    let total_size = std::fs::metadata(filename).map_err(|err| err.to_string())?.len();
+fn build_producers(
+    num_producers: u64,
+    chunks_per_producer: u64,
+    filename: &str,
+) -> Result<Senders, String> {
+    let total_size = std::fs::metadata(filename)
+        .map_err(|err| err.to_string())?
+        .len();
     let mut tx_producers: Senders = Senders::new();
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
@@ -217,15 +228,14 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
                         return Err(format!("Error reading data: {}", err.to_string()));
-                    },
+                    }
                     Ok(()) => {
                         chunk_id += 1;
                         cfg.chunk_id = chunk_id;
                         offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
-                        if let Err(err) = cfg.consumers[c]
-                            .send(Consume(cfg.clone(), buffer)) {
-                            return Err(format!("Error sending to consumer - {}", err.to_string()))  
+                        if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
+                            return Err(format!("Error sending to consumer - {}", err.to_string()));
                         }
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
@@ -274,8 +284,9 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                         Consume(cfg, buffer) => {
                             _bytes += buffer.len();
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
-                            ret.push((cfg.chunk_id,
-                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks)
+                            ret.push((
+                                cfg.chunk_id,
+                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks),
                             ));
                             //println!(
                             //    "{}> {} {}/{}",
@@ -290,7 +301,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                                 // TBD
                                 //break;
                             }
-                        },
+                        }
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
                             println!(
@@ -304,7 +315,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                                 //);
                                 break;
                             }
-                        },
+                        }
                         _ => {
                             // this should be unreachable!
                             panic!("Wrong message type received");
@@ -381,8 +392,9 @@ fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), S
     use std::os::windows::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {
-        data_read += file.seek_read(&mut buffer[data_read..], offset)
-                     .map_err(|err| err.to_string())?;
+        data_read += file
+            .seek_read(&mut buffer[data_read..], offset)
+            .map_err(|err| err.to_string())?;
     }
 }
 

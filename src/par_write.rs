@@ -45,7 +45,7 @@ impl<T> FnMove<T> {
     fn call(&self, buf: &mut Vec<u8>, t: &T, a: u64) -> Result<(), String> {
         (self.f)(buf, t, a)
     }
-} 
+}
 
 unsafe impl<T> Send for FnMove<T> {}
 
@@ -59,7 +59,6 @@ fn select_tx(
 ) -> usize {
     (previous_consumer_id + 1) % num_consumers
 }
-
 
 // -----------------------------------------------------------------------------
 /// Write data to file.
@@ -128,7 +127,9 @@ pub fn write_to_file<T: 'static + Clone + Send>(
     );
     let (tx_consumers, consumers_handles) = match build_consumers(num_consumers, filename) {
         Ok(r) => r,
-        Err(err) => {return Err(err.to_string());}
+        Err(err) => {
+            return Err(err.to_string());
+        }
     };
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
@@ -143,16 +144,22 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         chunks_per_producer,
         reserved_size as usize,
         num_tasks_per_producer,
-    );
+    )?;
 
     let mut bytes_consumed = 0;
     for h in consumers_handles {
         match h.join() {
             Ok(n) => match n {
-                Ok(bytes) => {bytes_consumed += bytes;},
-                Err(err) => {return Err(format!("Error: {:?}", err));}
+                Ok(bytes) => {
+                    bytes_consumed += bytes;
+                }
+                Err(err) => {
+                    return Err(format!("Error: {:?}", err));
+                }
             },
-            Err(err) => {return Err(format!("Error: {:?}", err));}
+            Err(err) => {
+                return Err(format!("Error: {:?}", err));
+            }
         }
     }
     Ok(bytes_consumed)
@@ -223,16 +230,18 @@ fn build_producers<T: 'static + Clone + Send>(
                 match cc.call(&mut buffer, &data, offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
-                      return Err(err.to_string())  //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
-                    },
+                        return Err(err.to_string()); //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
+                    }
                     Ok(()) => {
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
                         //cfg.producer_id = i;
-                        if let Err(err) = cfg.consumers[c] 
-                            .send(Consume(cfg.clone(), buffer)) {
-                            return Err(format!("Cannot send buffer to consumer - {}", err.to_string()));
+                        if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
+                            return Err(format!(
+                                "Cannot send buffer to consumer - {}",
+                                err.to_string()
+                            ));
                         }
                         if offset >= end_offset {
                             // signal the end of stream to consumers
@@ -247,7 +256,7 @@ fn build_producers<T: 'static + Clone + Send>(
                 }
             }
             println!("Producer {} exiting", i);
-            return Ok(())
+            return Ok(());
         });
     }
     tx_producers
@@ -255,7 +264,10 @@ fn build_producers<T: 'static + Clone + Send>(
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers(num_consumers: u64, file_name: &str) -> Result<(Senders, Vec<JoinHandle<Result<usize, String>>>), String> {
+fn build_consumers(
+    num_consumers: u64,
+    file_name: &str,
+) -> Result<(Senders, Vec<JoinHandle<Result<usize, String>>>), String> {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
@@ -266,7 +278,8 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> Result<(Senders, Vec<
         let h = thread::spawn(move || {
             let file = File::options()
                 .write(true)
-                .open(&file_name).map_err(|err| err.to_string())?;
+                .open(&file_name)
+                .map_err(|err| err.to_string())?;
             let mut producers_end_signal_count = 0;
             let mut bytes = 0;
             loop {
@@ -296,7 +309,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> Result<(Senders, Vec<
                                 // TBD
                                 //break;
                             }
-                        },
+                        }
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
                             println!(
@@ -350,7 +363,7 @@ fn launch(
     chunks_per_producer: u64,
     reserved_size: usize,
     num_tasks_per_producer: u64,
-) {
+) -> Result<(), String> {
     //number of read tasks performer/producer = number of buffers sent to
     //producer
     let num_buffers_per_producer = num_tasks_per_producer;
@@ -377,9 +390,11 @@ fn launch(
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
             };
-            tx.send(Message::Produce(cfg, buffer)).expect("Cannot send");
+            tx.send(Message::Produce(cfg, buffer))
+                .map_err(|err| err.to_string())?
         }
     }
+    Ok(())
 }
 #[cfg(any(windows))]
 fn write_bytes_at(buffer: &Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
