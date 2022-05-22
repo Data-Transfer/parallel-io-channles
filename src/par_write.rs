@@ -85,7 +85,7 @@ pub fn write_to_file<T: 'static + Clone + Send>(
     client_data: T,
     num_tasks_per_producer: u64,
     total_size: usize,
-) -> usize {
+) -> Result<usize, String> {
     let total_size = total_size as u64;
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - len + producer_chunk_size;
@@ -116,8 +116,8 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         chunks_per_producer,
         num_tasks_per_producer,
     );
-    let file = File::create(filename).expect("Cannot create file");
-    file.set_len(total_size).expect("Cannot set file length");
+    let file = File::create(filename).map_err(|err| err.to_string())?;
+    file.set_len(total_size).map_err(|err| err.to_string())?;
     drop(file);
     let tx_producers = build_producers(
         num_producers,
@@ -126,7 +126,10 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         producer,
         client_data,
     );
-    let (tx_consumers, consumers_handles) = build_consumers(num_consumers, filename);
+    let (tx_consumers, consumers_handles) = match build_consumers(num_consumers, filename) {
+        Ok(r) => r,
+        Err(err) => {return Err(err.to_string());}
+    };
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
         .max(task_chunk_size);
@@ -144,12 +147,15 @@ pub fn write_to_file<T: 'static + Clone + Send>(
 
     let mut bytes_consumed = 0;
     for h in consumers_handles {
-        match h.join().expect("Error joining threads") {
-            Ok(bytes) => {bytes_consumed += bytes;},
-            Err(err) => {eprintln!("Error: {}", err.to_string())}
+        match h.join() {
+            Ok(n) => match n {
+                Ok(bytes) => {bytes_consumed += bytes;},
+                Err(err) => {return Err(format!("Error: {:?}", err));}
+            },
+            Err(err) => {return Err(format!("Error: {:?}", err));}
         }
     }
-    bytes_consumed
+    Ok(bytes_consumed)
 }
 
 // -----------------------------------------------------------------------------
@@ -249,7 +255,7 @@ fn build_producers<T: 'static + Clone + Send>(
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHandle<Result<usize, String>>>) {
+fn build_consumers(num_consumers: u64, file_name: &str) -> Result<(Senders, Vec<JoinHandle<Result<usize, String>>>), String> {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
@@ -260,8 +266,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
         let h = thread::spawn(move || {
             let file = File::options()
                 .write(true)
-                .open(&file_name)
-                .expect("Cannot open file");
+                .open(&file_name).map_err(|err| err.to_string())?;
             let mut producers_end_signal_count = 0;
             let mut bytes = 0;
             loop {
@@ -323,7 +328,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
         });
         consumers_handles.push(h);
     }
-    (tx_consumers, consumers_handles)
+    Ok((tx_consumers, consumers_handles))
 }
 
 // -----------------------------------------------------------------------------

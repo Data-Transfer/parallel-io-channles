@@ -6,11 +6,19 @@ use std::sync::mpsc::Sender;
 
 #[derive(Clone)]
 struct Data {
-    tx: Sender<String>,
+    _tx: Sender<String>,
     msg: String
 }
 
-
+// -----------------------------------------------------------------------------
+/// Separate file read from data consumption using a fixed amount of memory.
+/// * thread 1 reads data from file and sends it to thread 2
+/// * thread 2 consumes data and sends consumed buffer back to thread 1 so that
+///   it can be reused
+/// The sender sends the buffer and a copy of the sender instance to be used
+/// to return the buffer to he sender. This way only the number of buffers equals
+/// the number of producers times the number of buffers per producer,
+/// regardless of the number of chunks generated.
 fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let len = std::fs::metadata(&filename)
@@ -36,7 +44,7 @@ fn main() {
     } else {
         2
     };
-    let consume = |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64| {
+    let consume = |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64| -> Result<usize, String>{
         std::thread::sleep(std::time::Duration::from_secs(1));
         println!(
             "Consumer: {}/{} {} {}",
@@ -45,22 +53,30 @@ fn main() {
             data.msg,
             buffer.len()
         );
-        data.tx.send(buffer.len().to_string()).expect("Error sending");
-        buffer.len()
+        //_data.tx.send(buffer.len().to_string()).expect("Error sending");
+        Ok(buffer.len())
     };
-    let (tx,rx) = channel::<String>();
+    let (tx,_rx) = channel::<String>();
+    //std::thread::spawn( move || {
+    //    //only move rx
+    //    let rx = rx;
+    //    while let Ok(msg) = rx.recv() { 
+    //        println!("{}", msg);
+    //    }});
     let tag = "TAG".to_string();
-    let bytes_consumed = read_file(
+    match read_file(
         &filename,
         num_producers,
         num_consumers,
         chunks_per_producer,
         std::sync::Arc::new(consume),
-        Data{tx: tx, msg: tag},
+        Data{_tx: tx, msg: tag},
         num_tasks_per_producer,
-    );
-    while let Ok(msg) = rx.recv() {
-        println!("{}", msg);
+    ) { 
+        Ok(v) => {
+            let bytes_consumed = v.iter().fold(0, |acc, x| if let (_,Ok(b)) = x { acc + b } else {acc} ); 
+            assert_eq!(bytes_consumed, len as usize);
+        },
+        Err(err) => { eprintln!("{}", err.to_string()); }
     }
-    assert_eq!(bytes_consumed, len as usize);
 }

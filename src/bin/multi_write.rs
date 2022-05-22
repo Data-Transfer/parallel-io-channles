@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
-/// Separate file write from data prduction using a fixed amount of memory.
-/// * thread 1 reads generates data and sends it to thread 2
-/// * thread 2 writes data to file sends consumed buffer back to thread 1 so that
+/// Separate file write from data production using a fixed amount of memory.
+/// * thread 1 sends generated data to thread 2
+/// * thread 2 writes data to file and sends consumed buffer back to thread 1 so that
 ///   it can be reused
 /// The sender sends the buffer and a copy of the sender instance to be used
 /// to return the buffer to he sender. This way only the number of buffers equals
@@ -41,7 +41,7 @@ fn main() {
         Ok(())
     };
     let data = "TAG".to_string();
-    let bytes_consumed = write_to_file(
+    if let Ok(bytes_consumed) = write_to_file(
         &filename,
         num_producers,
         num_consumers,
@@ -50,10 +50,13 @@ fn main() {
         data,
         num_tasks_per_producer,
         buffer_size,
-    );
-    let len = std::fs::metadata(&filename)
-        .expect("Cannot access file")
-        .len();
-    assert_eq!(bytes_consumed, len as usize);
-    std::fs::remove_file(&filename).expect("Cannot delete file");
+    ) {
+        let len = std::fs::metadata(&filename)
+            .expect("Cannot access file")
+            .len();
+        assert_eq!(bytes_consumed, len as usize);
+        std::fs::remove_file(&filename).expect("Cannot delete file");
+    } else {
+        eprintln!("Error writing to file");
+    }
 }

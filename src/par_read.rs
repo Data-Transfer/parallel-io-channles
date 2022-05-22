@@ -1,4 +1,3 @@
-
 /// Parallel async file read into memory buffers.
 /// The number of allocated buffers is always equal to the number of buffers
 /// per producer times the number of producers; all buffers are allocated
@@ -90,10 +89,11 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     consumer: Arc<Consumer<T, R>>,
     client_data: T,
     num_tasks_per_producer: u64,
-) -> Result<usize, String> {
-    let total_size = std::fs::metadata(&filename)
-        .expect("Error reading file size")
-        .len();
+) -> Result<Vec<(u64,R)>, String> {
+    let total_size = match std::fs::metadata(&filename) { 
+                        Ok(m) => m.len(),
+                        Err(err) => { return Err(err.to_string());}
+    };
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - total_size + producer_chunk_size;
     let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
@@ -124,7 +124,7 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         num_tasks_per_producer
     );
 
-    let tx_producers = build_producers(num_producers, chunks_per_producer, &filename);
+    let tx_producers = build_producers(num_producers, chunks_per_producer, &filename)?;
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
@@ -142,22 +142,20 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         return Err(err);
     }
 
-    let mut bytes_consumed = 0;
     let mut ret = Vec::new();
     for h in consumers_handles {
-        let (bytes, chunks) = h.join().expect("Error joining threads");
-        bytes_consumed += bytes;
-        ret.extend(chunks);
+        match h.join() {
+            Ok(chunks) => {ret.extend(chunks);},
+            Err(err) => {return Err(format!("{:?}", err));}
+        }
     }
-    Ok(bytes_consumed)
+    Ok(ret)
 }
 
 // -----------------------------------------------------------------------------
 /// Build producers and return array of Sender objects.
-fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str) -> Senders {
-    let total_size = std::fs::metadata(filename)
-        .expect("Cannot read metadata")
-        .len();
+fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str) -> Result<Senders, String> {
+    let total_size = std::fs::metadata(filename).map_err(|err| err.to_string())?.len();
     let mut tx_producers: Senders = Senders::new();
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
     let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
@@ -180,7 +178,7 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
         } else {
             offset + last_producer_chunk_size
         };
-        let file = File::open(&filename).expect("Cannot open file");
+        let file = File::open(&filename).map_err(|err| err.to_string())?;
         use Message::*;
         thread::spawn(move || {
             let mut prev_consumer = i as usize;
@@ -244,7 +242,7 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
             return Ok(());
         });
     }
-    tx_producers
+    Ok(tx_producers)
 }
 
 // -----------------------------------------------------------------------------
@@ -253,7 +251,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     num_consumers: u64,
     f: Arc<Consumer<T, R>>,
     data: T,
-) -> (Senders, Vec<JoinHandle<(usize, Vec<(u64, R)>)>>) {
+) -> (Senders, Vec<JoinHandle<Vec<(u64, R)>>>) {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
@@ -265,7 +263,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         let h = thread::spawn(move || {
             let mut ret = Vec::new();
             let mut producers_end_signal_count = 0;
-            let mut bytes = 0;
+            let mut _bytes = 0;
             loop {
                 // consumers tx endpoints live inside the ReadData instance
                 // sent along messages, when producers finish sending data
@@ -274,11 +272,10 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                 if let Ok(msg) = rx.recv() {
                     match msg {
                         Consume(cfg, buffer) => {
-                            bytes += buffer.len();
+                            _bytes += buffer.len();
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
-                            ret.push((
-                                cfg.chunk_id,
-                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks),
+                            ret.push((cfg.chunk_id,
+                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks)
                             ));
                             //println!(
                             //    "{}> {} {}/{}",
@@ -308,7 +305,10 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                                 break;
                             }
                         },
-                        _ => {panic!("Wrong message type received");}
+                        _ => {
+                            // this should be unreachable!
+                            panic!("Wrong message type received");
+                        }
                     }
                 } else {
                     // we do not care if the communication channel was closed
@@ -319,7 +319,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                 }
             }
             //println!("Consumer {} exiting, {} bytes received", i, bytes);
-            return (bytes, ret);
+            return ret;
         });
         consumers_handles.push(h);
     }
