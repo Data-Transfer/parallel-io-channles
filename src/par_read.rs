@@ -212,7 +212,7 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
                 println!("{:?}", buffer.as_ptr());
 
                 //match bf.read_exact(&mut buffer) {
-                match load_exact_bytes_at(&mut buffer, &file, offset as u64) {
+                match read_bytes_at(&mut buffer, &file, offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
@@ -371,7 +371,7 @@ fn launch(
     }
 }
 #[cfg(any(windows))]
-fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
+fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
     use std::os::windows::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {
@@ -381,7 +381,7 @@ fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result
 }
 
 #[cfg(any(unix))]
-fn load_exact_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
+fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
     use std::os::unix::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {

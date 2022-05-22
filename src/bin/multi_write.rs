@@ -1,4 +1,3 @@
-
 // -----------------------------------------------------------------------------
 /// Separate file write from data prduction using a fixed amount of memory.
 /// * thread 1 reads generates data and sends it to thread 2
