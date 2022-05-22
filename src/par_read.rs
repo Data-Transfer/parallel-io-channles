@@ -26,6 +26,7 @@ type ConsumerConfig = Config;
 type ProducerId = u64;
 type NumProducers = u64;
 enum Message {
+    //Error(String), // sent when producer encounters and error
     Consume(ConsumerConfig, Buffer), // sent to consumers
     Produce(ProducerConfig, Buffer), // sent to producers
     End(ProducerId, NumProducers),   // sent from producers to all consumers
@@ -43,7 +44,6 @@ impl<T, R> FnMove<T, R> {
     }
 }
 unsafe impl<T, R> Send for FnMove<T, R> {}
-unsafe impl<T, R> Sync for FnMove<T, R> {}
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
@@ -82,7 +82,7 @@ fn select_tx(
 /// 5. producer_chunk_size
 /// 6. last_producer_chunk_size
 /// 7. total_size
-pub fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + Send>(
+pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     filename: &str,
     num_producers: u64,
     num_consumers: u64,
@@ -90,7 +90,7 @@ pub fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + S
     consumer: Arc<Consumer<T, R>>,
     client_data: T,
     num_tasks_per_producer: u64,
-) -> usize {
+) -> Result<usize, String> {
     let total_size = std::fs::metadata(&filename)
         .expect("Error reading file size")
         .len();
@@ -130,7 +130,7 @@ pub fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + S
         .max(last_last_prod_task_chunk_size)
         .max(task_chunk_size);
     println!("reserved_size: {}", reserved_size);
-    launch(
+    if let Err(err) = launch(
         tx_producers,
         tx_consumers,
         task_chunk_size,
@@ -138,7 +138,9 @@ pub fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + S
         chunks_per_producer,
         reserved_size as usize,
         num_tasks_per_producer,
-    );
+    ) {
+        return Err(err);
+    }
 
     let mut bytes_consumed = 0;
     let mut ret = Vec::new();
@@ -147,7 +149,7 @@ pub fn read_file<T: 'static + Clone + Send + Sync, R: 'static + Clone + Sync + S
         bytes_consumed += bytes;
         ret.extend(chunks);
     }
-    bytes_consumed
+    Ok(bytes_consumed)
 }
 
 // -----------------------------------------------------------------------------
@@ -216,16 +218,17 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
                     //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
                         //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
-                        panic!("{}", err.to_string());
-                    }
+                        return Err(format!("Error reading data: {}", err.to_string()));
+                    },
                     Ok(()) => {
                         chunk_id += 1;
                         cfg.chunk_id = chunk_id;
                         offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
-                        cfg.consumers[c]
-                            .send(Consume(cfg.clone(), buffer))
-                            .expect(&format!("Cannot send buffer"));
+                        if let Err(err) = cfg.consumers[c]
+                            .send(Consume(cfg.clone(), buffer)) {
+                            return Err(format!("Error sending to consumer - {}", err.to_string()))  
+                        }
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
                             (0..cfg.consumers.len()).for_each(|x| {
@@ -238,7 +241,7 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
                 }
             }
             println!("Producer {} exiting", i);
-            return;
+            return Ok(());
         });
     }
     tx_producers
@@ -246,7 +249,7 @@ fn build_producers(num_producers: u64, chunks_per_producer: u64, filename: &str)
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync + Send>(
+fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     num_consumers: u64,
     f: Arc<Consumer<T, R>>,
     data: T,
@@ -305,7 +308,7 @@ fn build_consumers<T: 'static + Clone + Sync + Send, R: 'static + Clone + Sync +
                                 break;
                             }
                         },
-                        _ => {panic!("Wrong message received");}
+                        _ => {panic!("Wrong message type received");}
                     }
                 } else {
                     // we do not care if the communication channel was closed
@@ -341,7 +344,7 @@ fn launch(
     chunks_per_producer: u64,
     reserved_size: usize,
     num_tasks_per_producer: u64,
-) {
+) -> Result<(), String> {
     let num_producers = tx_producers.len() as u64;
     let num_buffers_per_producer = num_tasks_per_producer;
     for i in 0..num_producers {
@@ -366,9 +369,12 @@ fn launch(
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
             };
-            tx.send(Message::Produce(cfg, buffer)).expect("Cannot send");
+            if let Err(err) = tx.send(Message::Produce(cfg, buffer)) {
+                return Err(format!("Error sending to producer - {}", err.to_string()));
+            }
         }
     }
+    Ok(())
 }
 #[cfg(any(windows))]
 fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {

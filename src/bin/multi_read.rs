@@ -1,6 +1,16 @@
 
 //------------------------------------------------------------------------------
 use par_io::par_read::read_file;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::Sender;
+
+#[derive(Clone)]
+struct Data {
+    tx: Sender<String>,
+    msg: String
+}
+
+
 fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let len = std::fs::metadata(&filename)
@@ -26,26 +36,31 @@ fn main() {
     } else {
         2
     };
-    let consume = |buffer: &[u8], tag: &String, chunk_id: u64, num_chunks: u64| {
+    let consume = |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64| {
         std::thread::sleep(std::time::Duration::from_secs(1));
         println!(
             "Consumer: {}/{} {} {}",
             chunk_id,
             num_chunks,
-            tag,
+            data.msg,
             buffer.len()
         );
+        data.tx.send(buffer.len().to_string()).expect("Error sending");
         buffer.len()
     };
-    let data = "TAG".to_string();
+    let (tx,rx) = channel::<String>();
+    let tag = "TAG".to_string();
     let bytes_consumed = read_file(
         &filename,
         num_producers,
         num_consumers,
         chunks_per_producer,
         std::sync::Arc::new(consume),
-        data,
+        Data{tx: tx, msg: tag},
         num_tasks_per_producer,
     );
+    while let Ok(msg) = rx.recv() {
+        println!("{}", msg);
+    }
     assert_eq!(bytes_consumed, len as usize);
 }

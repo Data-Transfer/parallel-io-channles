@@ -48,7 +48,6 @@ impl<T> FnMove<T> {
 } 
 
 unsafe impl<T> Send for FnMove<T> {}
-unsafe impl<T> Sync for FnMove<T> {}
 
 // -----------------------------------------------------------------------------
 /// Select target consumer given current producer ID
@@ -77,7 +76,7 @@ fn select_tx(
 /// 5. producer_chunk_size
 /// 6. last_producer_chunk_size
 /// 7. total_size
-pub fn write_to_file<T: 'static + Clone + Send + Sync>(
+pub fn write_to_file<T: 'static + Clone + Send>(
     filename: &str,
     num_producers: u64,
     num_consumers: u64,
@@ -145,15 +144,17 @@ pub fn write_to_file<T: 'static + Clone + Send + Sync>(
 
     let mut bytes_consumed = 0;
     for h in consumers_handles {
-        let bytes = h.join().expect("Error joining threads");
-        bytes_consumed += bytes;
+        match h.join().expect("Error joining threads") {
+            Ok(bytes) => {bytes_consumed += bytes;},
+            Err(err) => {eprintln!("Error: {}", err.to_string())}
+        }
     }
     bytes_consumed
 }
 
 // -----------------------------------------------------------------------------
 /// Build producers and return array of Sender objects.
-fn build_producers<T: 'static + Clone + Sync + Send>(
+fn build_producers<T: 'static + Clone + Send>(
     num_producers: u64,
     total_size: u64,
     chunks_per_producer: u64,
@@ -216,21 +217,22 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                 match cc.call(&mut buffer, &data, offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
-                        //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
-                        panic!("{}", err.to_string());
-                    }
+                      return Err(err.to_string())  //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
+                    },
                     Ok(()) => {
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
                         //cfg.producer_id = i;
-                        cfg.consumers[c]
-                            .send(Consume(cfg.clone(), buffer))
-                            .expect(&format!("Cannot send buffer"));
+                        if let Err(err) = cfg.consumers[c] 
+                            .send(Consume(cfg.clone(), buffer)) {
+                            return Err(format!("Cannot send buffer to consumer - {}", err.to_string()));
+                        }
                         if offset >= end_offset {
                             // signal the end of stream to consumers
                             (0..cfg.consumers.len()).for_each(|x| {
                                 //println!("{}>> Sending End of message to consumer {}", i, x);
+                                // consumer might heve exited already
                                 let _ = cfg.consumers[x].send(End(i, num_producers));
                             });
                             break;
@@ -239,7 +241,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
                 }
             }
             println!("Producer {} exiting", i);
-            return;
+            return Ok(())
         });
     }
     tx_producers
@@ -247,7 +249,7 @@ fn build_producers<T: 'static + Clone + Sync + Send>(
 
 // -----------------------------------------------------------------------------
 /// Build consumers and return tuple of (Sender objects, JoinHandles)
-fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHandle<usize>>) {
+fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHandle<Result<usize, String>>>) {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
     for i in 0..num_consumers {
@@ -273,8 +275,9 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                             bytes += buffer.len();
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
                             //file.seek(SeekFrom::Start(cfg.offset)).expect("Cannot move file pointer");
-                            write_bytes_at(&buffer, &file, cfg.offset)
-                                .expect("Cannot write to file");
+                            if let Err(err) = write_bytes_at(&buffer, &file, cfg.offset) {
+                                return Err(format!("Cannot write to file - {}", err.to_string()));
+                            }
                             //println!(
                             //    "{}> {} {}/{}",
                             //    i, bytes, producers_end_signal_count, producers_per_consumer
@@ -288,7 +291,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                                 // TBD
                                 //break;
                             }
-                        }
+                        },
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
                             println!(
@@ -316,7 +319,7 @@ fn build_consumers(num_consumers: u64, file_name: &str) -> (Senders, Vec<JoinHan
                 }
             }
             //println!("Consumer {} exiting, {} bytes received", i, bytes);
-            return bytes;
+            return Ok(bytes);
         });
         consumers_handles.push(h);
     }
