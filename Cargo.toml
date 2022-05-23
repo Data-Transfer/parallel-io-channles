@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 
 [features]
-print_ptr = []
+print_ptr = [] # print buffer memory address to verify that no new allocation happens
