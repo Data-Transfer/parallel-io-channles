@@ -94,7 +94,7 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     let last_last_prod_task_chunk_size =
         last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; //last_prod_task_chunk_size * chunks_per_producer - last_producer_chunk_size + last_prod_task_chunk_size;
-    println!(
+    /*println!(
         r#"
            Total size: {}, 
            Producer chunk size {},  
@@ -114,7 +114,7 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         last_last_prod_task_chunk_size,
         chunks_per_producer,
         num_tasks_per_producer,
-    );
+    );*/
     let file = File::create(filename).map_err(|err| err.to_string())?;
     file.set_len(total_size).map_err(|err| err.to_string())?;
     drop(file);
@@ -134,7 +134,7 @@ pub fn write_to_file<T: 'static + Clone + Send>(
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
         .max(task_chunk_size);
-    println!("reserved_size: {}", reserved_size);
+    //println!("reserved_size: {}", reserved_size);
     launch(
         tx_producers,
         tx_consumers,
@@ -225,7 +225,7 @@ fn build_producers<T: 'static + Clone + Send>(
                 //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
                 #[cfg(feature = "print_ptr")]
-                println!("{:?}", buffer.as_ptr());
+                //println!("{:?}", buffer.as_ptr());
 
                 match cc.call(&mut buffer, &data, offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
@@ -255,7 +255,7 @@ fn build_producers<T: 'static + Clone + Send>(
                     }
                 }
             }
-            println!("Producer {} exiting", i);
+            //println!("Producer {} exiting", i);
             return Ok(());
         });
     }
@@ -312,10 +312,10 @@ fn build_consumers(
                         }
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
-                            println!(
+                            /*println!(
                                 "{}> received End signal from {} {}/{}",
                                 i, _prod_id, producers_end_signal_count, num_producers
-                            );
+                            );*/
                             if producers_end_signal_count >= num_producers {
                                 //println!(
                                 //    "{}>> {} {}/{}",
