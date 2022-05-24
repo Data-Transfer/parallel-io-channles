@@ -198,7 +198,7 @@ fn build_producers<T: 'static + Clone + Send>(
         use Message::*;
         let cc = FnMove { f: f.clone() };
         let data = data.clone();
-        thread::spawn(move || {
+        thread::spawn(move || -> Result<(), String> {
             //let mut bf = BufReader::new(file);
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
@@ -224,7 +224,7 @@ fn build_producers<T: 'static + Clone + Send>(
                 );
                 //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
-                #[cfg(feature = "print_ptr")]
+                //#[cfg(feature = "print_ptr")]
                 //println!("{:?}", buffer.as_ptr());
 
                 match cc.call(&mut buffer, &data, offset as u64) {
@@ -270,7 +270,7 @@ fn build_consumers(
 ) -> Result<(Senders, Vec<JoinHandle<Result<usize, String>>>), String> {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
-    for i in 0..num_consumers {
+    for _i in 0..num_consumers {
         let (tx, rx) = channel();
         tx_consumers.push(tx);
         use Message::*;

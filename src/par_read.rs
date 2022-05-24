@@ -191,7 +191,7 @@ fn build_producers(
         };
         let file = File::open(&filename).map_err(|err| err.to_string())?;
         use Message::*;
-        thread::spawn(move || {
+        thread::spawn(move || -> Result<(), String> {
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
                 let chunk_size = if i != num_producers - 1 {
@@ -219,7 +219,7 @@ fn build_producers(
                 );
                 //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
-                #[cfg(feature = "print_ptr")]
+                //#[cfg(feature = "print_ptr")]
                 //println!("{:?}", buffer.as_ptr());
 
                 //match bf.read_exact(&mut buffer) {
@@ -264,7 +264,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
 ) -> (Senders, Vec<JoinHandle<Vec<(u64, R)>>>) {
     let mut consumers_handles = Vec::new();
     let mut tx_consumers = Vec::new();
-    for i in 0..num_consumers {
+    for _i in 0..num_consumers {
         let (tx, rx) = channel();
         tx_consumers.push(tx);
         use Message::*;
