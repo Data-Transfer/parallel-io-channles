@@ -46,7 +46,7 @@ fn read() -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     file.write(bytes).map_err(|err| err.to_string())?;
     drop(file);
-    let _delete_file_at_end = DeleteFile(filename.to_string());
+    let _delete_file_at_exit = DeleteFile(filename.to_string());
     //3 read file in parallel
     let consume = |buffer: &[u8],
                    _data: &Dummy,
@@ -82,5 +82,49 @@ fn read() -> Result<(), String> {
     }
     //4 verify result
     assert_eq!(bytes, b);
+    Ok(())
+}
+
+#[test]
+fn write() -> Result<(), String> {
+    //1 create array
+    let buf: Vec<u32> = (0_u32..1111).collect();
+    let bytes = to_u8_slice(&buf).to_vec();
+    let data = Arc::new(bytes);
+    let len = data.len();
+    //the following could be optimised
+    //let buf: Vec<u8> = buf.iter().map(|x| x as u8).collect();
+    //2 save to file
+    let filename = "tmp-write_test";
+    let _delete_file_at_exit = DeleteFile(filename.to_string());
+    use std::sync::Arc;
+    //3 read file in parallel
+    let producer = |buffer: &mut Vec<u8>, src: &Arc<Vec<u8>> , offset: u64| -> Result<(), String> {
+        //read `buffer.len()` bytes from src at offset `offset` and copy into buffer 
+        let len = buffer.len();
+        buffer.copy_from_slice(&src[(offset as usize)..len]);
+        Ok(())
+    };
+    let num_producers = 1;
+    let num_consumers = 2;
+    let chunks_per_producer = 2;
+    let num_buffers_per_producer = 1;
+    if let Ok(bytes_consumed) = par_io::par_write::write_to_file(
+        &filename,
+        num_producers,
+        num_consumers,
+        chunks_per_producer,
+        Arc::new(producer),
+        data,
+        num_buffers_per_producer,
+        len,
+    ) {
+        let len = std::fs::metadata(&filename)
+            .expect("Cannot access file")
+            .len();
+        assert_eq!(bytes_consumed, len as usize);
+    } else {
+        return Err("Error writing to file".to_string());
+    }
     Ok(())
 }
