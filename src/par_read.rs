@@ -19,7 +19,7 @@ struct Config {
     num_chunks: u64,
     producer_tx: Sender<Message>,
     consumers: Senders,
-    offset: u64
+    offset: u64,
 }
 type ProducerConfig = Config;
 type ConsumerConfig = Config;
@@ -104,27 +104,27 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     let last_last_prod_task_chunk_size =
         last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; //last_prod_task_chunk_size * chunks_per_producer - last_producer_chunk_size + last_prod_task_chunk_size;
-    /*println!(
-        r#"
-           File size: {}, 
-           Producer chunk size {},  
-           Last producer chunk size {},
-           Task chunk size: {},
-           Last task chunk size: {},
-           Last producer task chunk size: {},
-           Last last producer task chunk size: {}
-           Chunks per producer: {}, 
-           Tasks per producer: {}"#,
-        total_size,
-        producer_chunk_size,
-        last_producer_chunk_size,
-        task_chunk_size,
-        last_task_chunk_size,
-        last_prod_task_chunk_size,
-        last_last_prod_task_chunk_size,
-        chunks_per_producer,
-        num_tasks_per_producer
-    );*/
+                                                                                          /*println!(
+                                                                                              r#"
+                                                                                                 File size: {},
+                                                                                                 Producer chunk size {},
+                                                                                                 Last producer chunk size {},
+                                                                                                 Task chunk size: {},
+                                                                                                 Last task chunk size: {},
+                                                                                                 Last producer task chunk size: {},
+                                                                                                 Last last producer task chunk size: {}
+                                                                                                 Chunks per producer: {},
+                                                                                                 Tasks per producer: {}"#,
+                                                                                              total_size,
+                                                                                              producer_chunk_size,
+                                                                                              last_producer_chunk_size,
+                                                                                              task_chunk_size,
+                                                                                              last_task_chunk_size,
+                                                                                              last_prod_task_chunk_size,
+                                                                                              last_last_prod_task_chunk_size,
+                                                                                              chunks_per_producer,
+                                                                                              num_tasks_per_producer
+                                                                                          );*/
 
     let tx_producers = build_producers(num_producers, chunks_per_producer, &filename)?;
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);
@@ -234,11 +234,11 @@ fn build_producers(
                         chunk_id += 1;
                         cfg.chunk_id = chunk_id;
                         cfg.offset = offset;
+                        offset += buffer.len() as u64;
                         //println!("Sending message to consumer {}", c);
                         if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
                             return Err(format!("Error sending to consumer - {}", err.to_string()));
                         }
-                        offset += buffer.len() as u64;
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
                             (0..cfg.consumers.len()).for_each(|x| {
@@ -288,7 +288,7 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                             //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
                             ret.push((
                                 cfg.chunk_id,
-                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks),
+                                cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks, cfg.offset),
                             ));
                             //println!(
                             //    "{}> {} {}/{}",
@@ -381,7 +381,7 @@ fn launch(
                 num_chunks: chunks_per_producer * num_producers,
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
-                offset: 0 // overwritten
+                offset: 0, // overwritten
             };
             if let Err(err) = tx.send(Message::Produce(cfg, buffer)) {
                 return Err(format!("Error sending to producer - {}", err.to_string()));

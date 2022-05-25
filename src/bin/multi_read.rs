@@ -43,19 +43,23 @@ fn main() {
     } else {
         2
     };
-    let consume =
-        |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64, _offset: u64| -> Result<usize, String> {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            println!(
-                "Consumer: {}/{} {} {}",
-                chunk_id,
-                num_chunks,
-                data.msg,
-                buffer.len()
-            );
-            //_data.tx.send(buffer.len().to_string()).expect("Error sending");
-            Ok(buffer.len())
-        };
+    let consume = |buffer: &[u8],
+                   data: &Data,
+                   chunk_id: u64,
+                   num_chunks: u64,
+                   _offset: u64|
+     -> Result<usize, String> {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        println!(
+            "Consumer: {}/{} {} {}",
+            chunk_id,
+            num_chunks,
+            data.msg,
+            buffer.len()
+        );
+        //_data.tx.send(buffer.len().to_string()).expect("Error sending");
+        Ok(buffer.len())
+    };
     let (tx, _rx) = channel::<String>();
     //std::thread::spawn( move || {
     //    //only move rx

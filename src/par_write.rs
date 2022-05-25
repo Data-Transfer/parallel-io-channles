@@ -94,27 +94,27 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     let last_last_prod_task_chunk_size =
         last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; //last_prod_task_chunk_size * chunks_per_producer - last_producer_chunk_size + last_prod_task_chunk_size;
-    /*println!(
-        r#"
-           Total size: {}, 
-           Producer chunk size {},  
-           Last producer chunk size {},
-           Task chunk size: {},
-           Last task chunk size: {},
-           Last producer task chunk size: {},
-           Last last producer task chunk size: {}
-           Chunks per producer: {}, 
-           Tasks per producer: {}"#,
-        total_size,
-        producer_chunk_size,
-        last_producer_chunk_size,
-        task_chunk_size,
-        last_task_chunk_size,
-        last_prod_task_chunk_size,
-        last_last_prod_task_chunk_size,
-        chunks_per_producer,
-        num_tasks_per_producer,
-    );*/
+                                                                                          /*println!(
+                                                                                              r#"
+                                                                                                 Total size: {},
+                                                                                                 Producer chunk size {},
+                                                                                                 Last producer chunk size {},
+                                                                                                 Task chunk size: {},
+                                                                                                 Last task chunk size: {},
+                                                                                                 Last producer task chunk size: {},
+                                                                                                 Last last producer task chunk size: {}
+                                                                                                 Chunks per producer: {},
+                                                                                                 Tasks per producer: {}"#,
+                                                                                              total_size,
+                                                                                              producer_chunk_size,
+                                                                                              last_producer_chunk_size,
+                                                                                              task_chunk_size,
+                                                                                              last_task_chunk_size,
+                                                                                              last_prod_task_chunk_size,
+                                                                                              last_last_prod_task_chunk_size,
+                                                                                              chunks_per_producer,
+                                                                                              num_tasks_per_producer,
+                                                                                          );*/
     let file = File::create(filename).map_err(|err| err.to_string())?;
     file.set_len(total_size).map_err(|err| err.to_string())?;
     drop(file);
