@@ -44,7 +44,7 @@ fn main() {
         2
     };
     let consume =
-        |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64| -> Result<usize, String> {
+        |buffer: &[u8], data: &Data, chunk_id: u64, num_chunks: u64, _offset: u64| -> Result<usize, String> {
             std::thread::sleep(std::time::Duration::from_secs(1));
             println!(
                 "Consumer: {}/{} {} {}",

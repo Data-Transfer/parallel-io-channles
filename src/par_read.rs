@@ -19,6 +19,7 @@ struct Config {
     num_chunks: u64,
     producer_tx: Sender<Message>,
     consumers: Senders,
+    offset: u64
 }
 type ProducerConfig = Config;
 type ConsumerConfig = Config;
@@ -33,13 +34,13 @@ enum Message {
 }
 
 // Moving a generic Fn instance requires customization
-type Consumer<T, R> = dyn Fn(&[u8], &T, u64, u64) -> R;
+type Consumer<T, R> = dyn Fn(&[u8], &T, u64, u64, u64) -> R;
 struct FnMove<T, R> {
     f: Arc<Consumer<T, R>>,
 }
 impl<T, R> FnMove<T, R> {
-    fn call(&self, buf: &[u8], t: &T, a: u64, b: u64) -> R {
-        (self.f)(buf, t, a, b)
+    fn call(&self, buf: &[u8], t: &T, a: u64, b: u64, c: u64) -> R {
+        (self.f)(buf, t, a, b, c)
     }
 }
 unsafe impl<T, R> Send for FnMove<T, R> {}
@@ -219,8 +220,8 @@ fn build_producers(
                 );
                 //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
-                //#[cfg(feature = "print_ptr")]
-                //println!("{:?}", buffer.as_ptr());
+                #[cfg(feature = "print_ptr")]
+                println!("{:?}", buffer.as_ptr());
 
                 //match bf.read_exact(&mut buffer) {
                 match read_bytes_at(&mut buffer, &file, offset as u64) {
@@ -232,11 +233,12 @@ fn build_producers(
                     Ok(()) => {
                         chunk_id += 1;
                         cfg.chunk_id = chunk_id;
-                        offset += buffer.len() as u64;
+                        cfg.offset = offset;
                         //println!("Sending message to consumer {}", c);
                         if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
                             return Err(format!("Error sending to consumer - {}", err.to_string()));
                         }
+                        offset += buffer.len() as u64;
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
                             (0..cfg.consumers.len()).for_each(|x| {
@@ -379,6 +381,7 @@ fn launch(
                 num_chunks: chunks_per_producer * num_producers,
                 producer_tx: tx.clone(),
                 consumers: tx_consumers.clone(),
+                offset: 0 // overwritten
             };
             if let Err(err) = tx.send(Message::Produce(cfg, buffer)) {
                 return Err(format!("Error sending to producer - {}", err.to_string()));

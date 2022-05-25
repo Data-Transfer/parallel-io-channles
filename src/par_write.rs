@@ -224,8 +224,8 @@ fn build_producers<T: 'static + Clone + Send>(
                 );
                 //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
-                //#[cfg(feature = "print_ptr")]
-                //println!("{:?}", buffer.as_ptr());
+                #[cfg(feature = "print_ptr")]
+                println!("{:?}", buffer.as_ptr());
 
                 match cc.call(&mut buffer, &data, offset as u64) {
                     //}, &file, offset)//file.read_exact(&mut buffer) {
