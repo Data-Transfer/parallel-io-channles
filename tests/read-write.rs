@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::io::Read;
 
 fn to_u8_slice<T>(v: &Vec<T>) -> &[u8] {
     unsafe {
@@ -26,6 +27,8 @@ struct DeleteFile(String);
 
 impl std::ops::Drop for DeleteFile {
     fn drop(&mut self) {
+        //this is invoked when exiting from main function, no recovery
+        //possible
         std::fs::remove_file(&self.0).unwrap();
     }
 }
@@ -102,29 +105,32 @@ fn write() -> Result<(), String> {
     let producer = |buffer: &mut Vec<u8>, src: &Arc<Vec<u8>> , offset: u64| -> Result<(), String> {
         //read `buffer.len()` bytes from src at offset `offset` and copy into buffer 
         let len = buffer.len();
-        buffer.copy_from_slice(&src[(offset as usize)..len]);
+        let start = offset as usize;
+        let end = start + len;
+        buffer.copy_from_slice(&src[start..end]);
         Ok(())
     };
-    let num_producers = 1;
+    let num_producers = 4;
     let num_consumers = 2;
-    let chunks_per_producer = 2;
-    let num_buffers_per_producer = 1;
-    if let Ok(bytes_consumed) = par_io::par_write::write_to_file(
+    let chunks_per_producer = 3;
+    let num_buffers_per_producer = 2;
+    let bytes_consumed = par_io::par_write::write_to_file(
         &filename,
         num_producers,
         num_consumers,
         chunks_per_producer,
         Arc::new(producer),
-        data,
+        data.clone(),
         num_buffers_per_producer,
         len,
-    ) {
-        let len = std::fs::metadata(&filename)
-            .expect("Cannot access file")
-            .len();
-        assert_eq!(bytes_consumed, len as usize);
-    } else {
-        return Err("Error writing to file".to_string());
-    }
+    )?;
+    let len = std::fs::metadata(&filename)
+        .map_err(|err| err.to_string())?
+        .len();
+    assert_eq!(bytes_consumed, len as usize);
+    let mut file = File::open(&filename).map_err(|err| err.to_string())?;
+    let mut buffer: Vec<u8> = vec![0_u8; len as usize];
+    file.read_exact(&mut buffer).map_err(|err| err.to_string())?;
+    assert_eq!(buffer, *data);
     Ok(())
 }
