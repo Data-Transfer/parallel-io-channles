@@ -114,7 +114,7 @@ fn write() -> Result<(), String> {
     let num_consumers = 2;
     let chunks_per_producer = 3;
     let num_buffers_per_producer = 2;
-    let bytes_consumed = par_io::par_write::write_to_file(
+    let bytes_consumed = par_io::write::write_to_file(
         &filename,
         num_producers,
         num_consumers,
