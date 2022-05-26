@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------
-use par_io::par_read::read_file;
+use par_io::read::read_file;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 

@@ -7,7 +7,7 @@
 /// to return the buffer to he sender. This way only the number of buffers equals
 /// the number of producers times the number of buffers per producer,
 /// regardless of the number of chunks generated.
-use par_io::par_write::write_to_file;
+use par_io::write::write_to_file;
 fn main() {
     let buffer_size: usize = std::env::args()
         .nth(1)
