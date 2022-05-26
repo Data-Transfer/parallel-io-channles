@@ -62,7 +62,7 @@ fn read() -> Result<(), String> {
     let chunks_per_producer = 3;
     let num_buffers_per_producer = 2;
     let mut b: Vec<u8> = Vec::new();
-    match par_io::par_read::read_file(
+    match par_io::read::read_file(
         filename,
         num_producers,
         num_consumers,
