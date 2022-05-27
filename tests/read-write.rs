@@ -6,7 +6,8 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::io::Read;
 
-fn to_u8_slice<T>(v: &Vec<T>) -> &[u8] {
+/// Convert reference to `Vec<T>` to `&[u8]`
+fn to_u8_slice<T: Sized>(v: &Vec<T>) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * std::mem::size_of::<T>())
     }
@@ -20,9 +21,11 @@ fn to_u8_slice<T>(v: &Vec<T>) -> &[u8] {
     }
 }*/
 
+/// Empty type passed to read producer callback.
 #[derive(Clone)]
 struct Dummy {}
 
+/// RAII for deleting file on exit.
 struct DeleteFile(String);
 
 impl std::ops::Drop for DeleteFile {
@@ -33,6 +36,8 @@ impl std::ops::Drop for DeleteFile {
     }
 }
 
+/// Generate file then read data in parallel and verify that the data read
+/// matches the one written.
 #[test]
 fn read() -> Result<(), String> {
     //1 create array
@@ -88,6 +93,7 @@ fn read() -> Result<(), String> {
     Ok(())
 }
 
+/// Generate data in memory then write to file and verify that the data is correct.
 #[test]
 fn write() -> Result<(), String> {
     //1 create array
@@ -95,7 +101,7 @@ fn write() -> Result<(), String> {
     let bytes = to_u8_slice(&buf).to_vec();
     let data = Arc::new(bytes);
     let len = data.len();
-    //the following could be optimised
+    //the following could be optimised as well
     //let buf: Vec<u8> = buf.iter().map(|x| x as u8).collect();
     //2 save to file
     let filename = "tmp-write_test";
@@ -124,6 +130,7 @@ fn write() -> Result<(), String> {
         num_buffers_per_producer,
         len,
     )?;
+    //4 verify result
     let len = std::fs::metadata(&filename)
         .map_err(|err| err.to_string())?
         .len();
