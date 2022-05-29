@@ -88,7 +88,7 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     chunks_per_producer: u64,
     consumer: Arc<Consumer<T, R>>,
     client_data: T,
-    num_tasks_per_producer: u64,
+    num_buffers_per_producer: u64,
 ) -> Result<Vec<(u64, R)>, String> {
     let total_size = match std::fs::metadata(&filename) {
         Ok(m) => m.len(),
@@ -139,7 +139,7 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         last_prod_task_chunk_size,
         chunks_per_producer,
         reserved_size as usize,
-        num_tasks_per_producer,
+        num_buffers_per_producer,
     ) {
         return Err(err);
     }
@@ -356,10 +356,10 @@ fn launch(
     last_producer_task_chunk_size: u64,
     chunks_per_producer: u64,
     reserved_size: usize,
-    num_tasks_per_producer: u64,
+    num_buffers_per_producer: u64,
 ) -> Result<(), String> {
     let num_producers = tx_producers.len() as u64;
-    let num_buffers_per_producer = num_tasks_per_producer;
+    let num_buffers_per_producer = num_buffers_per_producer;
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
         //number of messages/buffers to be sent to each producer's queue before

@@ -82,7 +82,7 @@ pub fn write_to_file<T: 'static + Clone + Send>(
     chunks_per_producer: u64,
     producer: Arc<Producer<T>>,
     client_data: T,
-    num_tasks_per_producer: u64,
+    num_buffers_per_producer: u64,
     total_size: usize,
 ) -> Result<usize, String> {
     let total_size = total_size as u64;
@@ -143,7 +143,7 @@ pub fn write_to_file<T: 'static + Clone + Send>(
         task_chunk_size,
         chunks_per_producer,
         reserved_size as usize,
-        num_tasks_per_producer,
+        num_buffers_per_producer,
     )?;
 
     let mut bytes_consumed = 0;
@@ -362,11 +362,11 @@ fn launch(
     last_producer_task_chunk_size: u64,
     chunks_per_producer: u64,
     reserved_size: usize,
-    num_tasks_per_producer: u64,
+    num_buffers_per_producer: u64,
 ) -> Result<(), String> {
     //number of read tasks performer/producer = number of buffers sent to
     //producer
-    let num_buffers_per_producer = num_tasks_per_producer;
+    let num_buffers_per_producer = num_buffers_per_producer;
     let num_producers = tx_producers.len() as u64;
     for i in 0..num_producers {
         let tx = tx_producers[i as usize].clone();
