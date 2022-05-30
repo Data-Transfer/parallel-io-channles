@@ -2,6 +2,8 @@
 //! This crate provides a simple interface to read and write from/to files in parallel.
 //! Data consumption is decoupled from data production by having separate groups
 //! of producer and consumer threads.
+//! 
+//! Files are read and written through synchronous `pread` and `pwrite` function calls.
 //!
 //! The same buffers are reused for both production and consumption and consumed
 //! buffers are sent back to the producer, thus the total amount of memory
