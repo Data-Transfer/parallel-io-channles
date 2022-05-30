@@ -3,10 +3,10 @@
 //! * thread *i* sends generated data by callback function to thread *j*
 //! * thread *j* writes data to file and sends consumed buffer back to thread *i* so that
 //!   it can be reused
-//! The number of buffers used equals the number of producers times the number 
+//! The number of buffers used equals the number of producers times the number
 //! of buffers per producer, regardless of the number of chunks generated.
 use par_io::write::write_to_file;
-fn main() {
+pub fn main() {
     let buffer_size: usize = std::env::args()
         .nth(1)
         .expect("Missing buffer size")

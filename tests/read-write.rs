@@ -1,10 +1,10 @@
 use par_io;
 use std::fs::File;
 use std::io::Cursor;
+use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
-use std::io::Read;
 
 /// Convert reference to `Vec<T>` to `&[u8]`
 fn to_u8_slice<T: Sized>(v: &Vec<T>) -> &[u8] {
@@ -108,8 +108,8 @@ fn write() -> Result<(), String> {
     let _delete_file_at_exit = DeleteFile(filename.to_string());
     use std::sync::Arc;
     //3 read file in parallel
-    let producer = |buffer: &mut Vec<u8>, src: &Arc<Vec<u8>> , offset: u64| -> Result<(), String> {
-        //read `buffer.len()` bytes from src at offset `offset` and copy into buffer 
+    let producer = |buffer: &mut Vec<u8>, src: &Arc<Vec<u8>>, offset: u64| -> Result<(), String> {
+        //read `buffer.len()` bytes from src at offset `offset` and copy into buffer
         let len = buffer.len();
         let start = offset as usize;
         let end = start + len;
@@ -137,7 +137,8 @@ fn write() -> Result<(), String> {
     assert_eq!(bytes_consumed, len as usize);
     let mut file = File::open(&filename).map_err(|err| err.to_string())?;
     let mut buffer: Vec<u8> = vec![0_u8; len as usize];
-    file.read_exact(&mut buffer).map_err(|err| err.to_string())?;
+    file.read_exact(&mut buffer)
+        .map_err(|err| err.to_string())?;
     assert_eq!(buffer, *data);
     Ok(())
 }

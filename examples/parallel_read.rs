@@ -3,11 +3,11 @@
 //! * thread *i* reads data from file and sends it to thread *j*
 //! * thread *j* consumes data passing it to the client callback function and
 //!    and sends consumed buffer back to thread *i* so that it can be reused
-//! The total number of buffers used equals the number of producers times the 
+//! The total number of buffers used equals the number of producers times the
 //! number of buffers per producer, regardless of the number of chunks read.
 //------------------------------------------------------------------------------
 use par_io::read::read_file;
-fn main() {
+pub fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let len = std::fs::metadata(&filename)
         .expect("Error reading file size")

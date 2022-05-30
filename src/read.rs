@@ -31,12 +31,13 @@ enum Message {
 }
 
 // Moving a generic Fn instance requires customization
-type Consumer<T, R> = dyn Fn(&[u8], // data read from file 
-                             &T,    // client data
-                             u64,   // chunk id
-                             u64,   // number of chunks
-                             u64    // file offset (where data is read from)
-                            ) -> R;
+type Consumer<T, R> = dyn Fn(
+    &[u8], // data read from file
+    &T,    // client data
+    u64,   // chunk id
+    u64,   // number of chunks
+    u64,   // file offset (where data is read from)
+) -> R;
 struct FnMove<T, R> {
     f: Arc<Consumer<T, R>>,
 }
@@ -62,18 +63,18 @@ fn select_tx(
 // -----------------------------------------------------------------------------
 /// Separate file reading from data consumption using the producer-consumer pattern
 /// and a fixed number of pre-allocated buffers to achieve constant memory usage.
-/// 
+///
 /// * thread *i* reads data and sends it to thread *j*
 /// * thread *j* receives data and passes it to client callback object, then sends buffer back to thread *i*
-/// 
+///
 /// The number of buffers equals the number of producers times the number of buffers per producer,
 /// regardless of the number of chunks read.
-/// 
+///
 /// ## Arguments
 /// * `filename` - file to read
 /// * `num_producers` - number of producers = number of producer threads
 /// * `num_consumers` - number of consumers = number of consumer threads
-/// * `chunks_per_producer` - number of chunks per producer = number of file read tasks per producer 
+/// * `chunks_per_producer` - number of chunks per producer = number of file read tasks per producer
 /// * `consumer` - function to consume data
 /// * `client_data` - data to be passed to consumer function
 /// * `num_buffers_per_producer` - number of buffers per producer; these buffers are sent to consumers and reused
@@ -81,8 +82,8 @@ fn select_tx(
 /// Callback signature:
 ///
 /// ```ignore
-/// 
-///type Consumer<T, R> = dyn Fn(&[u8], // data read from file 
+///
+///type Consumer<T, R> = dyn Fn(&[u8], // data read from file
 ///                             &T,    // client data
 ///                             u64,   // chunk id
 ///                             u64,   // number of chunks
@@ -127,7 +128,7 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     let last_prod_task_chunk_size =
         (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     let last_last_prod_task_chunk_size =
-        last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; 
+        last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size;
 
     let tx_producers = build_producers(num_producers, chunks_per_producer, &filename)?;
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);

@@ -2,35 +2,35 @@
 //! This crate provides a simple interface to read and write from/to files in parallel.
 //! Data consumption is decoupled from data production by having separate groups
 //! of producer and consumer threads.
-//! 
-//! The same buffers are reused for both production and consumption and consumed 
+//!
+//! The same buffers are reused for both production and consumption and consumed
 //! buffers are sent back to the producer, thus the total amount of memory
-//! used is equal to the number of producers times the number of buffers per producer. 
-//! 
+//! used is equal to the number of producers times the number of buffers per producer.
+//!
 //! When reading, the client callback function acts as the consumer and when writing
 //! it acts as the producer.
-//! 
+//!
 //! ## Reading
 //! Producer threads read data chunks from the file and send them to the consumer threads
 //! which pass the data to a client callback function.
-//! 
+//!
 //! Client code can use the `read_file` function to read the file specifying a callback
 //! function that will be called for each chunk read from the file.
-//! 
+//!
 //! The signature of the callback object passed to `read_file` is:
-//! 
+//!
 //! ```ignore
-//! type Consumer<T, R> = 
-//!     dyn Fn(&[u8], // data read from file 
+//! type Consumer<T, R> =
+//!     dyn Fn(&[u8], // data read from file
 //!              &T,  // client data    
 //!              u64, // chunk id   
 //!              u64, // number of chunks
 //!              u64  // file offset (where data is read from)
-//!           ) -> R; 
+//!           ) -> R;
 //! ```
-//! 
+//!
 //! ### Example
-//! 
+//!
 //! ```ignore
 //!  ...
 //!  let consume = |buffer: &[u8], // <- client callback
@@ -69,12 +69,12 @@
 //!            eprintln!("{}", err.to_string());
 //!        }
 //!    }
-//! ``` 
+//! ```
 //!
 //! ## Writing
 //! Producer threads invoke a client callback to generate data which is then sent to consumer threads
 //! which write data to file.
-//! 
+//!
 //! The signature of the callback object passed to the `write_to_file` function is:
 //! ```ignore
 //! type Producer<T> = dyn Fn(&mut Vec<u8>, // <- buffer to write to
@@ -88,7 +88,7 @@
 //! ...
 //!    
 //!    let producer = |buffer: &mut Vec<u8>, // <- client callback
-//!                    _tag: &String, // <- generic parameter 
+//!                    _tag: &String, // <- generic parameter
 //!                     _offset: u64| -> Result<(), String> {
 //!        std::thread::sleep(std::time::Duration::from_secs(1));
 //!        *buffer = vec![1_u8; buffer.len()];
@@ -114,6 +114,6 @@
 //!        eprintln!("Error writing to file");
 //!    }
 //! ```
-//! 
+//!
 pub mod read;
 pub mod write;
