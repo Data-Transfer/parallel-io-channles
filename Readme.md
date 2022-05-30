@@ -24,7 +24,7 @@ to Rust's *thread* and *mpsc* APIs.
 
 ## Usage
 
-`read_file` and `write_to_file` functions are use for read and write operations.
+`read_file` and `write_to_file` functions are used for read and write operations.
 
 The `read_file` function returns a vector with 
 
@@ -35,6 +35,8 @@ the data.
 
 The `write_to_file` function returns a `Result` instance containing the number of
 bytes written or an `Err(String)` instance.
+In case the producer's callback fails with an error, such error is forwarded to
+consumers which immediately exit returning the received error.
 
 ## Parallel reading example
 
