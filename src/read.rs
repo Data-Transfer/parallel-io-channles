@@ -1,7 +1,4 @@
-/// Parallel async file read into memory buffers.
-/// The number of allocated buffers is always equal to the number of buffers
-/// per producer times the number of producers; all buffers are allocated
-/// once before threads are executed.
+//! Parallel async file read.
 use std::fs::File;
 use std::ops::Fn;
 use std::sync::mpsc::channel;
@@ -34,19 +31,25 @@ enum Message {
 }
 
 // Moving a generic Fn instance requires customization
-type Consumer<T, R> = dyn Fn(&[u8], &T, u64, u64, u64) -> R;
+type Consumer<T, R> = dyn Fn(&[u8], // data read from file 
+                             &T,    // client data
+                             u64,   // chunk id
+                             u64,   // number of chunks
+                             u64    // file offset (where data is read from)
+                            ) -> R;
 struct FnMove<T, R> {
     f: Arc<Consumer<T, R>>,
 }
 impl<T, R> FnMove<T, R> {
-    fn call(&self, buf: &[u8], t: &T, a: u64, b: u64, c: u64) -> R {
-        (self.f)(buf, t, a, b, c)
+    fn call(&self, buf: &[u8], d: &T, a: u64, b: u64, c: u64) -> R {
+        (self.f)(buf, d, a, b, c)
     }
 }
 unsafe impl<T, R> Send for FnMove<T, R> {}
 
 // -----------------------------------------------------------------------------
-/// Select target consumer given current producer ID
+/// Select target consumer given current producer ID.
+/// Current implementation is round robin: each producer sends to the next
 fn select_tx(
     _i: usize,
     previous_consumer_id: usize,
@@ -57,30 +60,51 @@ fn select_tx(
 }
 
 // -----------------------------------------------------------------------------
-/// Separate file write from data prduction using a fixed amount of memory.
-/// * thread 1 reads generates data and sends it to thread 2
-/// * thread 2 writes data to file sends consumed buffer back to thread 1 so that
-///   it can be reused
-/// The sender sends the buffer and a copy of the sender instance to be used
-/// to return the buffer to he sender. This way only the number of buffers equals
-/// the number of producers times the number of buffers per producer,
-/// regardless of the number of chunks generated.
+/// Separate file reading from data consumption using the producer-consumer pattern
+/// and a fixed number of pre-allocated buffers to achieve constant memory usage.
+/// 
+/// * thread *i* reads data and sends it to thread *j*
+/// * thread *j* receives data and passes it to client callback object, then sends buffer back to thread *i*
+/// 
+/// The number of buffers equals the number of producers times the number of buffers per producer,
+/// regardless of the number of chunks read.
+/// 
+/// ## Arguments
+/// * `filename` - file to read
+/// * `num_producers` - number of producers = number of producer threads
+/// * `num_consumers` - number of consumers = number of consumer threads
+/// * `chunks_per_producer` - number of chunks per producer = number of file read tasks per producer 
+/// * `consumer` - function to consume data
+/// * `client_data` - data to be passed to consumer function
+/// * `num_buffers_per_producer` - number of buffers per producer; these buffers are sent to consumers and reused
+///
+/// Callback signature:
+///
+/// ```ignore
+/// 
+///type Consumer<T, R> = dyn Fn(&[u8], // data read from file 
+///                             &T,    // client data
+///                             u64,   // chunk id
+///                             u64,   // number of chunks
+///                             u64    // file offset (where data is read from)
+///                            ) -> R;
+/// ```
 
 // -----------------------------------------------------------------------------
-/// Write data to file.
-/// ```ignore
-/// |||..........|.....||..........|.....||...>> ||...|.|||
-///    <---1----><--2->                            <3><4>
-///    <-------5------>                            <--6->
-///    <-------------------------7---------------------->
-/// ```
-/// 1. task_chunk_size
-/// 2. last_task_chunk_size
-/// 3. last_producer_task_chunk_size
-/// 4. last_producer_last_task_chunk_size
-/// 5. producer_chunk_size
-/// 6. last_producer_chunk_size
-/// 7. total_size
+// Internal layout.
+// ```ignore
+// |||..........|.....||..........|.....||...>> ||...|.|||
+//    <---1----><--2->                            <3><4>
+//    <-------5------>                            <--6->
+//    <-------------------------7---------------------->
+// ```
+// 1. task_chunk_size
+// 2. last_task_chunk_size
+// 3. last_producer_task_chunk_size
+// 4. last_producer_last_task_chunk_size
+// 5. producer_chunk_size
+// 6. last_producer_chunk_size
+// 7. total_size
 pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     filename: &str,
     num_producers: u64,
@@ -97,41 +121,19 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         }
     };
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
-    let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size; //num_producers * producer_chunk_size - total_size + producer_chunk_size;
+    let last_producer_chunk_size = total_size - (num_producers - 1) * producer_chunk_size;
     let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
-    let last_task_chunk_size = producer_chunk_size - (chunks_per_producer - 1) * task_chunk_size; //chunks_per_producer * task_chunk_size -  producer_chunk_size + task_chunk_size;
+    let last_task_chunk_size = producer_chunk_size - (chunks_per_producer - 1) * task_chunk_size;
     let last_prod_task_chunk_size =
         (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     let last_last_prod_task_chunk_size =
-        last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; //last_prod_task_chunk_size * chunks_per_producer - last_producer_chunk_size + last_prod_task_chunk_size;
-                                                                                          /*println!(
-                                                                                              r#"
-                                                                                                 File size: {},
-                                                                                                 Producer chunk size {},
-                                                                                                 Last producer chunk size {},
-                                                                                                 Task chunk size: {},
-                                                                                                 Last task chunk size: {},
-                                                                                                 Last producer task chunk size: {},
-                                                                                                 Last last producer task chunk size: {}
-                                                                                                 Chunks per producer: {},
-                                                                                                 Tasks per producer: {}"#,
-                                                                                              total_size,
-                                                                                              producer_chunk_size,
-                                                                                              last_producer_chunk_size,
-                                                                                              task_chunk_size,
-                                                                                              last_task_chunk_size,
-                                                                                              last_prod_task_chunk_size,
-                                                                                              last_last_prod_task_chunk_size,
-                                                                                              chunks_per_producer,
-                                                                                              num_tasks_per_producer
-                                                                                          );*/
+        last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size; 
 
     let tx_producers = build_producers(num_producers, chunks_per_producer, &filename)?;
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
         .max(task_chunk_size);
-    //println!("reserved_size: {}", reserved_size);
     if let Err(err) = launch(
         tx_producers,
         tx_consumers,
@@ -177,7 +179,7 @@ fn build_producers(
     // currently producers exit after sending data, and consumers try
     // to send data back to disconnected producers, ignoring the returned
     // send() error
-    // another option is to have consumers return and 'End' signal when done
+    // another option is to have consumers return an 'Exit' signal when done
     // consuming data and producers exiting after al the consumers have
     // returned the signal
     for i in 0..num_producers {
@@ -206,11 +208,9 @@ fn build_producers(
                 unsafe {
                     buffer.set_len(chunk_size as usize);
                 }
-                //bf.seek(SeekFrom::Start(cfg.cur_offset)).unwrap();
-                //file.seek(SeekFrom::Current(df as u64)).unwrap();
                 let num_consumers = cfg.consumers.len();
                 // to support multiple consumers per producer we need to keep track of
-                // the destination, by adding the element into a Set and notify all
+                // the destination; by adding the element into a Set and notify all
                 // of them when the producer exits
                 let c = select_tx(
                     i as usize,
@@ -218,16 +218,12 @@ fn build_producers(
                     num_consumers,
                     num_producers as usize,
                 );
-                //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
 
-                //match bf.read_exact(&mut buffer) {
                 match read_bytes_at(&mut buffer, &file, offset as u64) {
-                    //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
-                        //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
                         return Err(format!("Error reading data: {}", err.to_string()));
                     }
                     Ok(()) => {
@@ -235,14 +231,12 @@ fn build_producers(
                         cfg.chunk_id = chunk_id;
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
-                        //println!("Sending message to consumer {}", c);
                         if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
                             return Err(format!("Error sending to consumer - {}", err.to_string()));
                         }
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
                             (0..cfg.consumers.len()).for_each(|x| {
-                                //println!("{}>> Sending End of message to consumer {}", i, x);
                                 let _ = cfg.consumers[x].send(End(i, num_producers));
                             });
                             break;
@@ -250,7 +244,6 @@ fn build_producers(
                     }
                 }
             }
-            //println!("Producer {} exiting", i);
             return Ok(());
         });
     }
@@ -285,36 +278,22 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                     match msg {
                         Consume(cfg, buffer) => {
                             _bytes += buffer.len();
-                            //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
                             ret.push((
                                 cfg.chunk_id,
                                 cc.call(&buffer, &data, cfg.chunk_id, cfg.num_chunks, cfg.offset),
                             ));
-                            //println!(
-                            //    "{}> {} {}/{}",
-                            //    i, bytes, producers_end_signal_count, producers_per_consumer
-                            //);
-                            //println!("{} Sending message to producer", i);
                             if let Err(_err) = cfg.producer_tx.send(Produce(cfg.clone(), buffer)) {
                                 // senders might have already exited at this point after having added
                                 // data to the queue
                                 // from Rust docs
-                                //A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be received
+                                // "A send operation can only fail if the receiving end of a channel is disconnected, implying that the data could never be received"
                                 // TBD
                                 //break;
                             }
                         }
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
-                            /*println!(
-                                "{}> received End signal from {} {}/{}",
-                                i, _prod_id, producers_end_signal_count, num_producers
-                            );*/
                             if producers_end_signal_count >= num_producers {
-                                //println!(
-                                //    "{}>> {} {}/{}",
-                                //    i, bytes, producers_end_signal_count, producers_per_consumer
-                                //);
                                 break;
                             }
                         }
@@ -327,11 +306,9 @@ fn build_consumers<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                     // we do not care if the communication channel was closed
                     // since it only happen when the producer is finished
                     // of an error elsewhere occurred
-                    //println!("{}> Exiting", i);
                     //break;
                 }
             }
-            //println!("Consumer {} exiting, {} bytes received", i, bytes);
             return ret;
         });
         consumers_handles.push(h);
@@ -390,6 +367,8 @@ fn launch(
     }
     Ok(())
 }
+
+// -----------------------------------------------------------------------------
 #[cfg(any(windows))]
 fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
     use std::os::windows::fs::FileExt;

@@ -1,23 +1,12 @@
+// -----------------------------------------------------------------------------
+//! Separate file reading from data consumption using a fixed amount of memory.
+//! * thread *i* reads data from file and sends it to thread *j*
+//! * thread *j* consumes data passing it to the client callback function and
+//!    and sends consumed buffer back to thread *i* so that it can be reused
+//! The total number of buffers used equals the number of producers times the 
+//! number of buffers per producer, regardless of the number of chunks read.
 //------------------------------------------------------------------------------
 use par_io::read::read_file;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Sender;
-
-#[derive(Clone)]
-struct Data {
-    _tx: Sender<String>,
-    msg: String,
-}
-
-// -----------------------------------------------------------------------------
-/// Separate file read from data consumption using a fixed amount of memory.
-/// * thread 1 reads data from file and sends it to thread 2
-/// * thread 2 consumes data and sends consumed buffer back to thread 1 so that
-///   it can be reused
-/// The sender sends the buffer and a copy of the sender instance to be used
-/// to return the buffer to he sender. This way only the number of buffers equals
-/// the number of producers times the number of buffers per producer,
-/// regardless of the number of chunks generated.
 fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
     let len = std::fs::metadata(&filename)
@@ -44,7 +33,7 @@ fn main() {
         2
     };
     let consume = |buffer: &[u8],
-                   data: &Data,
+                   data: &String,
                    chunk_id: u64,
                    num_chunks: u64,
                    _offset: u64|
@@ -54,19 +43,11 @@ fn main() {
             "Consumer: {}/{} {} {}",
             chunk_id,
             num_chunks,
-            data.msg,
+            data,
             buffer.len()
         );
-        //_data.tx.send(buffer.len().to_string()).expect("Error sending");
         Ok(buffer.len())
     };
-    let (tx, _rx) = channel::<String>();
-    //std::thread::spawn( move || {
-    //    //only move rx
-    //    let rx = rx;
-    //    while let Ok(msg) = rx.recv() {
-    //        println!("{}", msg);
-    //    }});
     let tag = "TAG".to_string();
     match read_file(
         &filename,
@@ -74,7 +55,7 @@ fn main() {
         num_consumers,
         chunks_per_producer,
         std::sync::Arc::new(consume),
-        Data { _tx: tx, msg: tag },
+        tag,
         num_tasks_per_producer,
     ) {
         Ok(v) => {
