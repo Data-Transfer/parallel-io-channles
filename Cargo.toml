@@ -1,9 +1,17 @@
 [package]
 name = "par_io"
 version = "0.3.3"
+authors = ["Ugo Varetto <ugovaretto@gmail.com>"]
+license = "BSD-3-Clause"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+rust-version = "1.60"
+description = "Parallel, async file I/O library"
+#repository = ""
+#homepage = ""
+#readme = "Reademe.md"
+#documentation = ""
+#keywords = []
+#categories = []
 
 [dependencies]
 

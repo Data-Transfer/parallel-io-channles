@@ -1,11 +1,14 @@
-// -----------------------------------------------------------------------------
-//! Separate file reading from data consumption using a fixed amount of memory.
-//! * thread *i* reads data from file and sends it to thread *j*
-//! * thread *j* consumes data passing it to the client callback function and
-//!    and sends consumed buffer back to thread *i* so that it can be reused
-//! The total number of buffers used equals the number of producers times the
-//! number of buffers per producer, regardless of the number of chunks read.
-//------------------------------------------------------------------------------
+//! A simple example of parallel reading from file. 
+//! Data is read by producer threads and sent to consumer threads which pass the 
+//! data to a client callback for consumption.
+//! 
+//! Input:
+//! 
+//! * input file name
+//! * number of producer threads
+//! * number of consumer threads 
+//! * number of chunks (== tasks) per producer
+//! * number of buffers per producer
 use par_io::read::read_file;
 pub fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");

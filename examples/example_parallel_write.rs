@@ -1,10 +1,14 @@
-// -----------------------------------------------------------------------------
-//! Separate file writing from data production using a fixed amount of memory.
-//! * thread *i* sends generated data by callback function to thread *j*
-//! * thread *j* writes data to file and sends consumed buffer back to thread *i* so that
-//!   it can be reused
-//! The number of buffers used equals the number of producers times the number
-//! of buffers per producer, regardless of the number of chunks generated.
+//! A simple example of parallel writing to file. 
+//! Data is generated in producer callback function and sent to writer threads
+//! 
+//! Input:
+//! 
+//! * memory buffer size
+//! * output file name
+//! * number of producer threads
+//! * number of consumer threads, 
+//! * number of chunks (== tasks) per producer
+//! * number of buffers per producer
 use par_io::write::write_to_file;
 pub fn main() {
     let buffer_size: usize = std::env::args()
@@ -28,7 +32,7 @@ pub fn main() {
         .expect("Missing num chunks per producer")
         .parse()
         .unwrap();
-    let num_tasks_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
+    let num_buffers_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
         p.parse().expect("Wrong num tasks format")
     } else {
         2
@@ -46,7 +50,7 @@ pub fn main() {
         chunks_per_producer,
         std::sync::Arc::new(producer),
         data,
-        num_tasks_per_producer,
+        num_buffers_per_producer,
         buffer_size,
     ) {
         let len = std::fs::metadata(&filename)

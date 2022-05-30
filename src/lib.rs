@@ -56,7 +56,7 @@
 //!        num_consumers,
 //!        chunks_per_producer,
 //!        std::sync::Arc::new(consume), // <- client callback
-//!        tag,                          // <- generic parameter
+//!        tag,                          // <- generic parameter passed to callback
 //!        num_tasks_per_producer,
 //!    ) {
 //!        Ok(v) => {
@@ -101,7 +101,7 @@
 //!        num_consumers,
 //!        chunks_per_producer,
 //!        std::sync::Arc::new(producer), // <- client callback
-//!        data,                          // <- generic parameter
+//!        data,                          // <- generic parameter passed to callback
 //!        num_tasks_per_producer,
 //!        buffer_size,
 //!    ) {
