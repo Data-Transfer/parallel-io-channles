@@ -46,7 +46,7 @@ pub fn main() {
         .expect("Missing num chunks per producer")
         .parse()
         .unwrap();
-    let num_tasks_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
+    let num_buffers_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
         p.parse().expect("Wrong num tasks format")
     } else {
         2
@@ -76,7 +76,7 @@ pub fn main() {
         chunks_per_producer,
         std::sync::Arc::new(consume), // <- callback
         tag,                          // <- client data passed to callback
-        num_tasks_per_producer,
+        num_buffers_per_producer,
     ) {
         Ok(v) => {
             let bytes_consumed = v
