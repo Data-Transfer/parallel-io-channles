@@ -5,7 +5,7 @@ model.
 
 When reading, the file is subdivided into chunks and each chunk is read by a separate
 producer thread which extracts a fixed size buffer from a queue and fills the buffer
-with data from file then sends it to a consumer thread which then passes the data
+with data from file and then sends it to a consumer thread which then passes the data
 to a callback function. The read buffer size is smaller
 or equal to the chunk size and using multiple buffers per producer allows
 data generation and consumption to overlap.
@@ -15,12 +15,26 @@ to the consumer threads which write data to file.
 Producers extract fixed size buffers from a queue and pass the buffers to a callback
 function which fills the buffers. Buffers are then sent to consumer (writer) threads.
 
-Synchronous calls to `pread` and `pwrite` insider reader or writer threads are used
+Synchronous calls to `pread` and `pwrite` inside reader or writer threads are used
 to transfer data.
 
 No async runtime is used since the actual file I/O is synchronous and task
 distribution and execution is controlled by the library through direct calls
 to Rust's *thread* and *mpsc* APIs.
+
+## Usage
+
+`read_file` and `write_to_file` functions are use for read and write operations.
+
+The `read_file` function returns a vector with 
+
+*size = (number of chunks per producer) x (number of producers)*
+
+with each element containing the return value of the callback function consuming
+the data.
+
+The `write_to_file` function returns a `Result` instance containing the number of
+bytes written or an `Err(String)` instance.
 
 ## Parallel reading example
 
