@@ -29,6 +29,8 @@ enum Message {
     Produce(ProducerConfig, Buffer), // sent to producers
     End(ProducerId, NumProducers),   // sent from producers to all consumers
                                      // to signal end of transmission
+    Error(String)                    // sent from producer to consumers to signal
+                                     // error
 }
 
 // Moving a generic Fn instance requires customization
@@ -208,7 +210,6 @@ fn build_producers<T: 'static + Clone + Send>(
         let cc = FnMove { f: f.clone() };
         let data = data.clone();
         thread::spawn(move || -> Result<(), String> {
-            //let mut bf = BufReader::new(file);
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
                 let chunk_size = if i != num_producers - 1 {
@@ -216,7 +217,6 @@ fn build_producers<T: 'static + Clone + Send>(
                 } else {
                     last_prod_task_chunk_size.min(end_offset - offset)
                 };
-                //println!("producer_chunk_size: {} chunks_per_producers {} task_chunk_size: {} capacity: {}, chunk_size: {}", producer_chunk_size, chunks_per_producer, task_chunk_size, buffer.capacity(), chunk_size);
                 assert!(buffer.capacity() >= chunk_size as usize);
                 unsafe {
                     buffer.set_len(chunk_size as usize);
@@ -231,21 +231,20 @@ fn build_producers<T: 'static + Clone + Send>(
                     num_consumers,
                     num_producers as usize,
                 );
-                //println!("[{}] Sending {} bytes to consumer {}", i, buffer.len(), c);
                 prev_consumer = c;
                 #[cfg(feature = "print_ptr")]
                 println!("{:?}", buffer.as_ptr());
 
                 match cc.call(&mut buffer, &data, offset as u64) {
-                    //}, &file, offset)//file.read_exact(&mut buffer) {
                     Err(err) => {
-                        return Err(err.to_string()); //panic!("offset: {} cur_offset: {} buffer.len: {}", cfg.offset, cfg.cur_offset, buffer.len());
+                        (0..cfg.consumers.len()).for_each(|c| {
+                            let _ = cfg.consumers[c].send(Error(err.to_string()));
+                        });
+                        return Err(err.to_string()); 
                     }
                     Ok(()) => {
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
-                        //println!("Sending message to consumer {}", c);
-                        //cfg.producer_id = i;
                         if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
                             return Err(format!(
                                 "Cannot send buffer to consumer - {}",
@@ -255,7 +254,6 @@ fn build_producers<T: 'static + Clone + Send>(
                         if offset >= end_offset {
                             // signal the end of stream to consumers
                             (0..cfg.consumers.len()).for_each(|x| {
-                                //println!("{}>> Sending End of message to consumer {}", i, x);
                                 // consumer might heve exited already
                                 let _ = cfg.consumers[x].send(End(i, num_producers));
                             });
@@ -264,7 +262,6 @@ fn build_producers<T: 'static + Clone + Send>(
                     }
                 }
             }
-            //println!("Producer {} exiting", i);
             return Ok(());
         });
     }
@@ -298,18 +295,14 @@ fn build_consumers(
                 // failing and consumers exiting
                 if let Ok(msg) = rx.recv() {
                     match msg {
+                        Error(err) => {
+                            return Err(err);
+                        }
                         Consume(cfg, buffer) => {
                             bytes += buffer.len();
-                            //println!("{}> Received {} bytes from [{}]", i, buffer.len(), cfg.producer_id);
-                            //file.seek(SeekFrom::Start(cfg.offset)).expect("Cannot move file pointer");
                             if let Err(err) = write_bytes_at(&buffer, &file, cfg.offset) {
                                 return Err(format!("Cannot write to file - {}", err.to_string()));
                             }
-                            //println!(
-                            //    "{}> {} {}/{}",
-                            //    i, bytes, producers_end_signal_count, producers_per_consumer
-                            //);
-                            //println!("{} Sending message to producer", i);
                             if let Err(_err) = cfg.producer_tx.send(Produce(cfg.clone(), buffer)) {
                                 // senders might have already exited at this point after having added
                                 // data to the queue
@@ -321,15 +314,7 @@ fn build_consumers(
                         }
                         End(_prod_id, num_producers) => {
                             producers_end_signal_count += 1;
-                            /*println!(
-                                "{}> received End signal from {} {}/{}",
-                                i, _prod_id, producers_end_signal_count, num_producers
-                            );*/
                             if producers_end_signal_count >= num_producers {
-                                //println!(
-                                //    "{}>> {} {}/{}",
-                                //    i, bytes, producers_end_signal_count, producers_per_consumer
-                                //);
                                 break;
                             }
                         }
@@ -341,11 +326,9 @@ fn build_consumers(
                     // we do not care if the communication channel was closed
                     // since it only happen when the producer is finished
                     // of an error elsewhere occurred
-                    //println!("{}> Exiting", i);
                     //break;
                 }
             }
-            //println!("Consumer {} exiting, {} bytes received", i, bytes);
             return Ok(bytes);
         });
         consumers_handles.push(h);
