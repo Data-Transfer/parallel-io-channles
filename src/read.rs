@@ -11,23 +11,30 @@ use std::thread::JoinHandle;
 type Senders = Vec<Sender<Message>>;
 type Buffer = Vec<u8>;
 #[derive(Clone)]
-struct Config {
+pub struct Config {
     chunk_id: u64,
     num_chunks: u64,
     producer_tx: Sender<Message>,
     consumers: Senders,
     offset: u64,
 }
-type ProducerConfig = Config;
-type ConsumerConfig = Config;
+pub type ProducerConfig = Config;
+pub type ConsumerConfig = Config;
 type ProducerId = u64;
 type NumProducers = u64;
-enum Message {
+pub enum Message {
     //Error(String), // sent when producer encounters and error
     Consume(ConsumerConfig, Buffer), // sent to consumers
     Produce(ProducerConfig, Buffer), // sent to producers
     End(ProducerId, NumProducers),   // sent from producers to all consumers
                                      // to signal end of transmission
+}
+
+#[derive(Debug)]
+pub enum ReadError {
+    IO(std::io::Error),
+    Send(std::sync::mpsc::SendError<Message>), 
+    Other(String)
 }
 
 // Moving a generic Fn instance requires customization
@@ -114,11 +121,11 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     consumer: Arc<Consumer<T, R>>,
     client_data: T,
     num_buffers_per_producer: u64,
-) -> Result<Vec<(u64, R)>, String> {
+) -> Result<Vec<(u64, R)>, ReadError> {
     let total_size = match std::fs::metadata(&filename) {
         Ok(m) => m.len(),
         Err(err) => {
-            return Err(err.to_string());
+            return Err(ReadError::IO(err));
         }
     };
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
@@ -130,12 +137,12 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
     let last_last_prod_task_chunk_size =
         last_producer_chunk_size - (chunks_per_producer - 1) * last_prod_task_chunk_size;
 
-    let tx_producers = build_producers(num_producers, chunks_per_producer, &filename)?;
+    let (tx_producers, prods) = build_producers(num_producers, chunks_per_producer, &filename)?;
     let (tx_consumers, consumers_handles) = build_consumers(num_consumers, consumer, client_data);
     let reserved_size = last_task_chunk_size
         .max(last_last_prod_task_chunk_size)
         .max(task_chunk_size);
-    if let Err(err) = launch(
+    launch(
         tx_producers,
         tx_consumers,
         task_chunk_size,
@@ -143,10 +150,8 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
         chunks_per_producer,
         reserved_size as usize,
         num_buffers_per_producer,
-    ) {
-        return Err(err);
-    }
-
+    )?;
+     
     let mut ret = Vec::new();
     for h in consumers_handles {
         match h.join() {
@@ -154,7 +159,15 @@ pub fn read_file<T: 'static + Clone + Send, R: 'static + Clone + Sync + Send>(
                 ret.extend(chunks);
             }
             Err(err) => {
-                return Err(format!("{:?}", err));
+                return Err(ReadError::Other(format!("{:?}", err)));
+            }
+        }
+    }
+    for p in prods {
+        match p.join() {
+            Ok(_) => {},
+            Err(err) => {
+                return Err(ReadError::Other(format!("{:?}", err)));
             }
         }
     }
@@ -167,9 +180,8 @@ fn build_producers(
     num_producers: u64,
     chunks_per_producer: u64,
     filename: &str,
-) -> Result<Senders, String> {
-    let total_size = std::fs::metadata(filename)
-        .map_err(|err| err.to_string())?
+) -> Result<(Senders, Vec<JoinHandle<Result<(), ReadError>>>), ReadError> {
+    let total_size = std::fs::metadata(filename).map_err(|err| ReadError::IO(err))?
         .len();
     let mut tx_producers: Senders = Senders::new();
     let producer_chunk_size = (total_size + num_producers - 1) / num_producers;
@@ -177,6 +189,7 @@ fn build_producers(
     let task_chunk_size = (producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
     let last_prod_task_chunk_size =
         (last_producer_chunk_size + chunks_per_producer - 1) / chunks_per_producer;
+    let mut producer_handles = Vec::new(); 
     // currently producers exit after sending data, and consumers try
     // to send data back to disconnected producers, ignoring the returned
     // send() error
@@ -193,9 +206,9 @@ fn build_producers(
         } else {
             offset + last_producer_chunk_size
         };
-        let file = File::open(&filename).map_err(|err| err.to_string())?;
+        let file = File::open(&filename).map_err(|err| ReadError::IO(err))?;
         use Message::*;
-        thread::spawn(move || -> Result<(), String> {
+        let h = thread::spawn(move || -> Result<(), ReadError> {
             let mut prev_consumer = i as usize;
             while let Ok(Produce(mut cfg, mut buffer)) = rx.recv() {
                 let chunk_size = if i != num_producers - 1 {
@@ -225,7 +238,11 @@ fn build_producers(
 
                 match read_bytes_at(&mut buffer, &file, offset as u64) {
                     Err(err) => {
-                        return Err(format!("Error reading data: {}", err.to_string()));
+                        // signal the end of stream to consumers
+                        (0..cfg.consumers.len()).for_each(|x| {
+                            let _ = cfg.consumers[x].send(End(i, num_producers));
+                        });
+                        return Err(ReadError::IO(err));
                     }
                     Ok(()) => {
                         chunk_id += 1;
@@ -233,7 +250,7 @@ fn build_producers(
                         cfg.offset = offset;
                         offset += buffer.len() as u64;
                         if let Err(err) = cfg.consumers[c].send(Consume(cfg.clone(), buffer)) {
-                            return Err(format!("Error sending to consumer - {}", err.to_string()));
+                            return Err(ReadError::Send(err));
                         }
                         if offset as u64 >= end_offset {
                             // signal the end of stream to consumers
@@ -247,8 +264,9 @@ fn build_producers(
             }
             return Ok(());
         });
+        producer_handles.push(h);
     }
-    Ok(tx_producers)
+    Ok((tx_producers, producer_handles))
 }
 
 // -----------------------------------------------------------------------------
@@ -335,7 +353,7 @@ fn launch(
     chunks_per_producer: u64,
     reserved_size: usize,
     num_buffers_per_producer: u64,
-) -> Result<(), String> {
+) -> Result<(), ReadError> {
     let num_producers = tx_producers.len() as u64;
     let num_buffers_per_producer = num_buffers_per_producer;
     for i in 0..num_producers {
@@ -362,7 +380,7 @@ fn launch(
                 offset: 0, // overwritten
             };
             if let Err(err) = tx.send(Message::Produce(cfg, buffer)) {
-                return Err(format!("Error sending to producer - {}", err.to_string()));
+                return Err(ReadError::Send(err));
             }
         }
     }
@@ -382,13 +400,13 @@ fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), S
 }
 
 #[cfg(any(unix))]
-fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
+fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), std::io::Error> {
     use std::os::unix::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {
         data_read += file
-            .read_at(&mut buffer[data_read..], offset)
-            .map_err(|err| err.to_string())?;
+            .read_at(&mut buffer[data_read..], offset)?;
+            //.map_err(|err| err.to_string())?;
     }
     Ok(())
 }

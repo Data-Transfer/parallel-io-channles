@@ -9,6 +9,11 @@
 //! * number of consumer threads 
 //! * number of chunks (== tasks) per producer
 //! * number of buffers per producer
+//!
+//! Usage:
+//! ```ignore
+//! cargo run --example example_parallel_read <input file name> 12 4 3 2
+//! ```
 use par_io::read::read_file;
 pub fn main() {
     let filename = std::env::args().nth(1).expect("Missing file name");
@@ -43,7 +48,7 @@ pub fn main() {
      -> Result<usize, String> {
         std::thread::sleep(std::time::Duration::from_secs(1));
         println!(
-            "Consumer: {}/{} {} {}",
+            "Consumer: {}/{} {} buffer length: {}",
             chunk_id,
             num_chunks,
             data,
@@ -68,7 +73,18 @@ pub fn main() {
             assert_eq!(bytes_consumed, len as usize);
         }
         Err(err) => {
-            eprintln!("{}", err.to_string());
+            use par_io::read::ReadError;
+            match err {
+                ReadError::IO(err) => {
+                    eprintln!("IO error: {:?}", err);
+                },
+                ReadError::Send(err) => {
+                    eprintln!("Send error: {:?}", err);
+                },
+                ReadError::Other(err) => {
+                    eprintln!("Error: {:?}", err);
+                }
+            }
         }
     }
 }

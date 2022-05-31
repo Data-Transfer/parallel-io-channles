@@ -9,6 +9,11 @@
 //! * number of consumer threads, 
 //! * number of chunks (== tasks) per producer
 //! * number of buffers per producer
+//! 
+//! Usage:
+//! ```ignore
+//! cargo run --example example_parallel_write 2041 tmp-out 12 4 3 2
+//! ```
 use par_io::write::write_to_file;
 pub fn main() {
     let buffer_size: usize = std::env::args()
@@ -37,8 +42,14 @@ pub fn main() {
     } else {
         2
     };
-    let producer = |buffer: &mut Vec<u8>, _tag: &String, _offset: u64| -> Result<(), String> {
+    // Avoid overwriting existing file: xit if output file exists.
+    if let Ok(_) = std::fs::metadata(&filename) {
+        eprintln!("Error: file '{}' exists", filename);
+        std::process::exit(1);
+    }
+    let producer = |buffer: &mut Vec<u8>, _tag: &String, offset: u64| -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_secs(1));
+        println!("Writing to offset {}", offset);
         *buffer = vec![1_u8; buffer.len()];
         Ok(())
     };
@@ -61,13 +72,13 @@ pub fn main() {
             std::fs::remove_file(&filename).expect("Cannot delete file");
         },
         Err(err) => {
-            use par_io::write::{WriteError, ProducerError, ConsumerError};
+            use par_io::write::{WriteError, ProducerError};
             match err {
                 WriteError::Producer(ProducerError{msg, offset}) => {
                     eprintln!("Producer error: {} at {}", msg, offset);
                 },
-                WriteError::Consumer(ConsumerError{msg}) => {
-                    eprintln!("Consumer error: {}", msg);
+                WriteError::IO(err) => {
+                    eprintln!("I/O error: {:?}", err);
                 },
                 WriteError::Other(err) => {
                     eprintln!("Error: {}", err);

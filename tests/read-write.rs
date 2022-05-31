@@ -83,9 +83,9 @@ fn read() -> Result<(), String> {
                     .map_err(|err| err.to_string())?;
                 out.write(x).map_err(|err| err.to_string())?;
             }
-        }
+        },
         Err(err) => {
-            return Err(err.to_string());
+            return Err(format!("{:?}", err));
         }
     }
     //4 verify result
