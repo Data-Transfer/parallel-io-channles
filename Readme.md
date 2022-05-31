@@ -12,6 +12,8 @@ to Rust's *thread* and *mpsc* APIs.
 
 ### Reading
 
+(producer = reader)
+
     1. the file is subdivided into chunks
     2. each chunk is read by a separate producer thread
     3. the producer thread extracts a buffer from a queue and fills it with the data from the file
@@ -20,6 +22,7 @@ to Rust's *thread* and *mpsc* APIs.
     6. the return value from the callback is stored into an array
     7. the buffer is moved back to the thread that sent it
     8. all the return values from all the consumer threads are merged into a single array and returned to client code
+
 
 Memory consumption is equal to:
  
@@ -30,6 +33,8 @@ and independent from number of chunks or file size.
 Having more than one buffer per producer queue allows reading and data consumption to overlap
 
 ### Writing
+
+(consumer = writer)
 
     1. producer threads extract buffer from queue
     2. mutable reference to buffer is passed to producer callback received from client code
