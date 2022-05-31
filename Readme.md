@@ -151,14 +151,17 @@ pub fn main() {
         .expect("Missing num chunks per producer")
         .parse()
         .unwrap();
-    let num_buffers_per_producer: u64 = if let Some(p) = std::env::args().nth(5) {
+    let num_buffers_per_producer: u64 = if let Some(p) = std::env::args().nth(6) {
         p.parse().expect("Wrong num tasks format")
     } else {
         2
     };
     let producer = |buffer: &mut Vec<u8>, _tag: &String, _offset: u64| -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        *buffer = vec![1_u8; buffer.len()];
+        println!("{:?}> Writing to offset {}", buffer.as_ptr(), offset);
+        let len = buffer.len();
+        // Warning: data need to be modified in place if not `buffer` will be re-allocated and not reused
+        buffer.copy_from_slice(vec![1_u8; len].as_slice());
         Ok(())
     };
     let data = "TAG".to_string();

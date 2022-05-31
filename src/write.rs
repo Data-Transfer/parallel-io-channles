@@ -255,8 +255,6 @@ fn build_producers<T: 'static + Clone + Send, E: 'static + Send + Debug>(
                     num_producers as usize,
                 );
                 prev_consumer = c;
-                #[cfg(feature = "print_ptr")]
-                println!("{:?}", buffer.as_ptr());
 
                 match cc.call(&mut buffer, &data, offset as u64) {
                     Err(err) => {
@@ -377,8 +375,6 @@ fn launch(
     reserved_size: usize,
     num_buffers_per_producer: u64,
 ) -> Result<(), WriteError> {
-    //number of read tasks performer/producer = number of buffers sent to
-    //producer
     let num_buffers_per_producer = num_buffers_per_producer;
     let num_producers = tx_producers.len() as u64;
     for i in 0..num_producers {
@@ -394,7 +390,7 @@ fn launch(
             } else {
                 last_producer_task_chunk_size
             };
-            buffer.reserve(reserved_size);
+            buffer.reserve(2 * reserved_size);
             unsafe {
                 buffer.set_len(chunk_size as usize);
             }

@@ -219,8 +219,6 @@ fn build_producers(
                 } else {
                     last_prod_task_chunk_size.min(end_offset - offset)
                 };
-                //println!(">> cfg chunk size: {}", cfg.chunk_size);
-                //println!("buffer.capacity(): {} cfg.chunk_size: {}", buffer.capacity(), cfg.chunk_size);
                 assert!(buffer.capacity() >= chunk_size as usize);
                 unsafe {
                     buffer.set_len(chunk_size as usize);
@@ -236,8 +234,6 @@ fn build_producers(
                     num_producers as usize,
                 );
                 prev_consumer = c;
-                #[cfg(feature = "print_ptr")]
-                println!("{:?}", buffer.as_ptr());
 
                 match read_bytes_at(&mut buffer, &file, offset as u64) {
                     Err(err) => {
