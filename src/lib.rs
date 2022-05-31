@@ -131,8 +131,8 @@
 //!                WriteError::Producer(ProducerError{msg, offset}) => {
 //!                    eprintln!("Producer error: {} at {}", msg, offset);
 //!                },
-//!                WriteError::IO(ConsumerError{msg}) => {
-//!                    eprintln!("I/O error: {:?}", msg);
+//!                WriteError::IO(err) => {
+//!                    eprintln!("I/O error: {:?}", err);
 //!                },
 //!                WriteError::Other(err) => {
 //!                    eprintln!("Error: {:?}", err);
