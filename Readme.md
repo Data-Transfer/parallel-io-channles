@@ -3,6 +3,13 @@
 Simple library to read and write files in parallel implementing the producer-consumer
 model.
 
+Synchronous calls to `pread` and `pwrite` inside reader and writer threads are used
+to transfer data.
+
+No async runtime is used since the actual file I/O is synchronous and task
+distribution and execution is controlled by the library through direct calls
+to Rust's *thread* and *mpsc* APIs.
+
 ### Reading
 
     1. the file is subdivided into chunks
@@ -12,7 +19,7 @@ model.
     5. the consumer thread passes a reference to the buffer to a consumer callback received from client code
     6. the return value from the callback is stored into an array
     7. the buffer is moved back to the thread that sent it
-    8. all the return values from all the consumer threads are merged into one and returned to client code
+    8. all the return values from all the consumer threads are merged into a single array and returned to client code
 
 Memory consumption is equal to:
  
@@ -34,12 +41,10 @@ Having more than one buffer per producer queue allows reading and data consumpti
     6. each consumer thread returns the number of bytes written to file  
     7. the results from all consumer threads are merged into a single array returned to client code
 
-Synchronous calls to `pread` and `pwrite` inside reader and writer threads are used
-to transfer data.
+Memory consumption is equal to:
+ 
+ *(buffer size) x (number of buffers per producer) x (number of producers)*
 
-No async runtime is used since the actual file I/O is synchronous and task
-distribution and execution is controlled by the library through direct calls
-to Rust's *thread* and *mpsc* APIs.
 
 ## Usage
 
