@@ -43,7 +43,7 @@ pub fn main() {
         Ok(())
     };
     let data = "TAG".to_string();
-    if let Ok(bytes_consumed) = write_to_file(
+    match write_to_file(
         &filename,
         num_producers,
         num_consumers,
@@ -53,12 +53,15 @@ pub fn main() {
         num_buffers_per_producer,
         buffer_size,
     ) {
-        let len = std::fs::metadata(&filename)
-            .expect("Cannot access file")
-            .len();
-        assert_eq!(bytes_consumed, len as usize);
-        std::fs::remove_file(&filename).expect("Cannot delete file");
-    } else {
-        eprintln!("Error writing to file");
+        Ok(bytes_consumed) => {
+            let len = std::fs::metadata(&filename)
+                .expect("Cannot access file")
+                .len();
+            assert_eq!(bytes_consumed, len as usize);
+            std::fs::remove_file(&filename).expect("Cannot delete file");
+        },
+        Err(err) => {
+            eprintln!("{:?}", err);
+        }
     }
 }

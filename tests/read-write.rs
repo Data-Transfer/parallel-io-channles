@@ -129,7 +129,7 @@ fn write() -> Result<(), String> {
         data.clone(),
         num_buffers_per_producer,
         len,
-    )?;
+    ).map_err(|err| format!("{:?}", err))?;
     //4 verify result
     let len = std::fs::metadata(&filename)
         .map_err(|err| err.to_string())?

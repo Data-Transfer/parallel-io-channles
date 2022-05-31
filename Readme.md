@@ -3,17 +3,34 @@
 Simple library to read and write files in parallel implementing the producer-consumer
 model.
 
-When reading, the file is subdivided into chunks and each chunk is read by a separate
-producer thread which extracts a fixed size buffer from a queue and fills the buffer
-with data from file and then sends it to a consumer thread which then passes the data
-to a callback function. The read buffer size is smaller
-or equal to the chunk size and using multiple buffers per producer allows
-data generation and consumption to overlap.
+### Reading
 
-When writing, the producer threads send the data returned by the client callback
-to the consumer threads which write data to file.
-Producers extract fixed size buffers from a queue and pass the buffers to a callback
-function which fills the buffers. Buffers are then sent to consumer (writer) threads.
+    1. the file is subdivided into chunks
+    2. each chunk is read by a separate producer thread
+    3. the producer thread extracts a buffer from a queue and fills it with the data from the file
+    4. the filled buffer is sent to a consumer thread (round-robin scheduling)
+    5. the consumer thread passes a reference to the buffer to a consumer callback received from client code
+    6. the return value from the callback is stored into an array and the buffer is moved back to the thread that sent it
+
+Memory consumption is equal to:
+ 
+ *(buffer size) x (number of buffers per producer) x (number of producers)*
+
+and independent from number of chunks or file size.
+
+Having more than one buffer per producer queue allows reading and data consumption to overlap
+
+### Writing
+
+    1. producer threads extract buffer from queue
+    2. mutable reference to buffer is passed to producer callback received from client code
+    3. result of callback invocation is checked: 
+       1. no error: buffer is sent to consumer threads (round robin scheduling);
+       2. error: error is sent to consumer threads which then terminate immediately
+    4. consumer threads receive the buffer and the file offset and store the data into file
+    5. buffer is moved back to the producer thread that sent it
+    6. each consumer thread returns the number of bytes written to file  
+
 
 Synchronous calls to `pread` and `pwrite` inside reader or writer threads are used
 to transfer data.
@@ -28,7 +45,7 @@ to Rust's *thread* and *mpsc* APIs.
 
 The `read_file` function returns a vector with 
 
-*size = (number of chunks per producer) x (number of producers)*
+  *size = (number of chunks per producer) x (number of producers)*
 
 with each element containing the return value of the callback function consuming
 the data.
