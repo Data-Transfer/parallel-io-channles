@@ -34,7 +34,7 @@ Having more than one buffer per producer queue allows reading and data consumpti
     6. each consumer thread returns the number of bytes written to file  
     7. the results from all consumer threads are merged into a single array returned to client code
 
-Synchronous calls to `pread` and `pwrite` inside reader or writer threads are used
+Synchronous calls to `pread` and `pwrite` inside reader and writer threads are used
 to transfer data.
 
 No async runtime is used since the actual file I/O is synchronous and task

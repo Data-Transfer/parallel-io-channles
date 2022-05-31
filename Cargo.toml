@@ -6,14 +6,11 @@ license = "BSD-3-Clause"
 edition = "2021"
 rust-version = "1.60"
 description = "Parallel, async file I/O library"
-#repository = ""
-#homepage = ""
+#repository = "https://github.io/uv-rust/par_io"
+#homepage = "https://github.io/uv-rust/par_io"
 readme = "Readme.md"
 #documentation = ""
-#keywords = []
-#categories = []
+keywords = ["I/O", "parallel", "async", "file"]
+categories = ["Asynchronous", "Filesystem", "Concurrency"]
 
 [dependencies]
-
-[features]
-print_ptr = [] # print buffer memory address to verify that no new allocation happens
