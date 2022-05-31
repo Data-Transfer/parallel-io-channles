@@ -10,7 +10,9 @@ model.
     3. the producer thread extracts a buffer from a queue and fills it with the data from the file
     4. the filled buffer is sent to a consumer thread (round-robin scheduling)
     5. the consumer thread passes a reference to the buffer to a consumer callback received from client code
-    6. the return value from the callback is stored into an array and the buffer is moved back to the thread that sent it
+    6. the return value from the callback is stored into an array
+    7. the buffer is moved back to the thread that sent it
+    8. all the return values from all the consumer threads are merged into one and returned to client code
 
 Memory consumption is equal to:
  
@@ -30,7 +32,7 @@ Having more than one buffer per producer queue allows reading and data consumpti
     4. consumer threads receive the buffer and the file offset and store the data into file
     5. buffer is moved back to the producer thread that sent it
     6. each consumer thread returns the number of bytes written to file  
-
+    7. the results from all consumer threads are merged into a single array returned to client code
 
 Synchronous calls to `pread` and `pwrite` inside reader or writer threads are used
 to transfer data.
@@ -43,7 +45,7 @@ to Rust's *thread* and *mpsc* APIs.
 
 `read_file` and `write_to_file` functions are used for read and write operations.
 
-The `read_file` function returns a vector with 
+The `read_file` function returns a vector of 
 
   *size = (number of chunks per producer) x (number of producers)*
 
