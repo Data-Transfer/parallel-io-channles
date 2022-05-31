@@ -61,7 +61,18 @@ pub fn main() {
             std::fs::remove_file(&filename).expect("Cannot delete file");
         },
         Err(err) => {
-            eprintln!("{:?}", err);
+            use par_io::write::{WriteError, ProducerError, ConsumerError};
+            match err {
+                WriteError::Producer(ProducerError{msg, offset}) => {
+                    eprintln!("Producer error: {} at {}", msg, offset);
+                },
+                WriteError::Consumer(ConsumerError{msg}) => {
+                    eprintln!("Consumer error: {}", msg);
+                },
+                WriteError::Other(err) => {
+                    eprintln!("Error: {}", err);
+                },
+            }
         }
     }
 }

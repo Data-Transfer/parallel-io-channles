@@ -97,25 +97,37 @@
 //!        Ok(())
 //!    };
 //!    let data = "TAG".to_string();
-//!    if let Ok(bytes_consumed) = write_to_file(
+//!    match write_to_file(
 //!        &filename,
 //!        num_producers,
 //!        num_consumers,
 //!        chunks_per_producer,
-//!        std::sync::Arc::new(producer), // <- client callback
-//!        data,                          // <- generic parameter passed to callback
-//!        num_tasks_per_producer,
+//!        std::sync::Arc::new(producer),
+//!        data,
+//!        num_buffers_per_producer,
 //!        buffer_size,
 //!    ) {
-//!        let len = std::fs::metadata(&filename)
-//!            .expect("Cannot access file")
-//!            .len();
-//!        assert_eq!(bytes_consumed, len as usize);
-//!        std::fs::remove_file(&filename).expect("Cannot delete file");
-//!    } else {
-//!        eprintln!("Error writing to file");
+//!        Ok(bytes_consumed) => {
+//!            let len = std::fs::metadata(&filename)
+//!                .expect("Cannot access file")
+//!                .len();
+//!            assert_eq!(bytes_consumed, len as usize);
+//!            std::fs::remove_file(&filename).expect("Cannot delete file");
+//!        },
+//!        Err(err) => {
+//!            use par_io::write::{WriteError, ProducerError, ConsumerError};
+//!            match err {
+//!                WriteError::Producer(ProducerError{msg, offset}) => {
+//!                    eprintln!("Producer error: {} at {}", msg, offset);
+//!                },
+//!                WriteError::Consumer(ConsumerError{msg}) => {
+//!                    eprintln!("Consumer error: {}", msg);
+//!                },
+//!                WriteError::Other(err) => {
+//!                    eprintln!("Error: {}", err);
+//!                },
+//!            }
+//!        }
 //!    }
-//! ```
-//!
 pub mod read;
 pub mod write;
