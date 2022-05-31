@@ -42,7 +42,7 @@ pub fn main() {
     } else {
         2
     };
-    // Avoid overwriting existing file: xit if output file exists.
+    // Avoid overwriting existing file: exit if output file exists.
     if let Ok(_) = std::fs::metadata(&filename) {
         eprintln!("Error: file '{}' exists", filename);
         std::process::exit(1);
