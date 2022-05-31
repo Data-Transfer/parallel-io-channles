@@ -57,9 +57,9 @@
 //!        num_producers,
 //!        num_consumers,
 //!        chunks_per_producer,
-//!        std::sync::Arc::new(consume), // <- client callback
-//!        tag,                          // <- generic parameter passed to callback
-//!        num_tasks_per_producer,
+//!        std::sync::Arc::new(consume),
+//!        tag,
+//!        num_buffers_per_producer,
 //!    ) {
 //!        Ok(v) => {
 //!            let bytes_consumed = v
@@ -68,7 +68,18 @@
 //!            assert_eq!(bytes_consumed, len as usize);
 //!        }
 //!        Err(err) => {
-//!            eprintln!("{}", err.to_string());
+//!            use par_io::read::ReadError;
+//!            match err {
+//!                ReadError::IO(err) => {
+//!                    eprintln!("IO error: {:?}", err);
+//!                },
+//!                ReadError::Send(err) => {
+//!                    eprintln!("Send error: {:?}", err);
+//!                },
+//!                ReadError::Other(err) => {
+//!                    eprintln!("Error: {:?}", err);
+//!                }
+//!            }
 //!        }
 //!    }
 //! ```
@@ -120,11 +131,11 @@
 //!                WriteError::Producer(ProducerError{msg, offset}) => {
 //!                    eprintln!("Producer error: {} at {}", msg, offset);
 //!                },
-//!                WriteError::Consumer(ConsumerError{msg}) => {
-//!                    eprintln!("Consumer error: {}", msg);
+//!                WriteError::IO(ConsumerError{msg}) => {
+//!                    eprintln!("I/O error: {:?}", msg);
 //!                },
 //!                WriteError::Other(err) => {
-//!                    eprintln!("Error: {}", err);
+//!                    eprintln!("Error: {:?}", err);
 //!                },
 //!            }
 //!        }
