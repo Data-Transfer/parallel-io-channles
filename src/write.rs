@@ -30,7 +30,7 @@ enum Message {
     Produce(ProducerConfig, Buffer), // sent to producers
     End(ProducerId, NumProducers),   // sent from producers to all consumers
                                      // to signal end of transmission
-    Error(ProducerError)                    // sent from producer to consumers to signal
+    Error(ProducerError)             // sent from producer to consumers to signal
                                      // error
 }
 
@@ -406,10 +406,10 @@ fn launch(
     Ok(())
 }
 #[cfg(any(windows))]
-fn write_bytes_at(buffer: &Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
+fn write_bytes_at(buffer: &Vec<u8>, file: &File, offset: u64) -> Result<(), WriteError> {
     use std::os::windows::fs::FileExt;
     file.seek_write(buffer, offset)
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| WriteError::IO(err))?;
 }
 
 #[cfg(any(unix))]
