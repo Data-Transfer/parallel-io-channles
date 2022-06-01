@@ -388,13 +388,12 @@ fn launch(
 
 // -----------------------------------------------------------------------------
 #[cfg(any(windows))]
-fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), String> {
+fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), std::io::Error> {
     use std::os::windows::fs::FileExt;
     let mut data_read = 0;
     while data_read < buffer.len() {
         data_read += file
-            .seek_read(&mut buffer[data_read..], offset)
-            .map_err(|err| err.to_string())?;
+            .seek_read(&mut buffer[data_read..], offset)?
     }
 }
 
@@ -405,7 +404,6 @@ fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), s
     while data_read < buffer.len() {
         data_read += file
             .read_at(&mut buffer[data_read..], offset)?;
-            //.map_err(|err| err.to_string())?;
     }
     Ok(())
 }
