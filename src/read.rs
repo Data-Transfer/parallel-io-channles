@@ -395,6 +395,7 @@ fn read_bytes_at(buffer: &mut Vec<u8>, file: &File, offset: u64) -> Result<(), s
         data_read += file
             .seek_read(&mut buffer[data_read..], offset)?
     }
+    Ok(())
 }
 
 #[cfg(any(unix))]
