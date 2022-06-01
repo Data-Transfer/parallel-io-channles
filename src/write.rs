@@ -410,6 +410,7 @@ fn write_bytes_at(buffer: &Vec<u8>, file: &File, offset: u64) -> Result<(), Writ
     use std::os::windows::fs::FileExt;
     file.seek_write(buffer, offset)
         .map_err(|err| WriteError::IO(err))?;
+    Ok(())
 }
 
 #[cfg(any(unix))]
